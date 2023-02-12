@@ -379,7 +379,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         }
 
         /// <summary>
-        /// Loads the localizedSTringResources from the given budles.
+        /// Loads the localizedStringResources from the given budles.
         /// </summary>
         /// <param name="bundlePaths"></param>
         private void LoadTextResources(IEnumerable<string> bundlePaths)

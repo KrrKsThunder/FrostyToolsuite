@@ -13,6 +13,10 @@ using System;
 namespace BiowareLocalizationPlugin.LocalizedResources
 {
 
+    /// <summary>
+    /// Implementation of the LocalizedStringResource - Resource type.
+    /// Please note that there is now another implementation for those resources also present in BwPlainStringLocalizationPlugin.LocalizedResources, to be used with anthem and deadspace.
+    /// </summary>
     public class LocalizedStringResource : Resource
     {
 

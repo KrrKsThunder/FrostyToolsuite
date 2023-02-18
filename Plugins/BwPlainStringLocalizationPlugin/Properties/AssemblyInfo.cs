@@ -1,6 +1,7 @@
 ﻿using BwPlainStringLocalizationPlugin;
 using Frosty.Core.Attributes;
 using FrostySdk;
+using FrostySdk.Managers.Entries;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -31,3 +32,5 @@ using System.Windows;
 [assembly: PluginValidForProfile((int)ProfileVersion.DeadSpace)]
 
 [assembly: RegisterLocalizedStringDatabase(typeof(BwPlainStringLocalizationDatabase))]
+
+[assembly: RegisterCustomHandler(CustomHandlerType.Res, typeof(BwPlainStringLocalizationCustomActionHandler), resType: ResourceType.LocalizedStringResource, ebxType: "")]

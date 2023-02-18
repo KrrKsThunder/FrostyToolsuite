@@ -11,6 +11,7 @@ namespace BwPlainStringLocalizationPlugin
 {
     internal class BwPlainStringLocalizationDatabase : ILocalizedStringDatabase
     {
+
         /// <summary>
         /// The default language to operate with if no other one is given.
         /// </summary>
@@ -21,7 +22,7 @@ namespace BwPlainStringLocalizationPlugin
         /// NOTE: For Anthem and Deadspace localizations there should only exist a single resource bundle per language, containing a single resource each!
         /// If this is not the case, due to e.g., dlc or similar, then a serious rewrite is necessary and this plugin might be better of as part of the main BW localization Plugin after all!
         /// </summary>
-        private SortedDictionary<string, IList<LocalizedStringResource>> m_languageLocalizationResourceNames;
+        private SortedDictionary<string, IList<LocalizedStringResource>> m_languageLocalizationResources;
 
         /// <summary>
         /// marker whether or not this was already initialized.
@@ -41,7 +42,7 @@ namespace BwPlainStringLocalizationPlugin
                 return;
             }
 
-            m_languageLocalizationResourceNames = GetLanguageDictionary();
+            m_languageLocalizationResources = GetLanguageDictionary();
 
             m_initialized = true;
         }
@@ -58,42 +59,67 @@ namespace BwPlainStringLocalizationPlugin
 
         public IEnumerable<uint> EnumerateModifiedStrings()
         {
-            throw new NotImplementedException();
+            // might contain duplicates if there are more than one resource
+            return GetResources()
+                .SelectMany(resource => resource.GetAllModifiedTextsIds());
         }
 
         public IEnumerable<uint> EnumerateStrings()
         {
-            throw new NotImplementedException();
+            return GetResources()
+                .SelectMany(resource => resource.GetAllTextIds());
         }
 
         public string GetString(uint id)
         {
-            throw new NotImplementedException();
+            return GetResources()
+                .Select(resource => resource.GetText(id))
+                .DefaultIfEmpty(null)
+                .First();
         }
 
         public string GetString(string stringId)
         {
-            throw new NotImplementedException();
+            bool canParse = uint.TryParse(stringId, out var textId);
+            if(canParse)
+            {
+                return GetString(stringId);
+            }
+            App.Logger.LogWarning("Cannot read text id <{0}>", stringId);
+            return null;
         }
 
         public bool isStringEdited(uint id)
         {
-            throw new NotImplementedException();
+            GetResources()
+                .Select(resource => resource.IsStringEdited(id))
+                .DefaultIfEmpty(false)
+                .First();
+
+            return false;
         }
 
         public void RevertString(uint id)
         {
-            throw new NotImplementedException();
+            GetResources().ToList().ForEach(resource => resource.RemoveText(id));
         }
 
         public void SetString(uint id, string value)
         {
-            throw new NotImplementedException();
+            GetResources().ToList().ForEach(resource => resource.SetText(id, value));
         }
 
         public void SetString(string id, string value)
         {
-            throw new NotImplementedException();
+            bool canParse = uint.TryParse(id, out var textId);
+            if (canParse)
+            {
+                SetString(textId, value);
+            }
+            else
+            {
+                App.Logger.LogWarning("Cannot read text id <{0}>", id);
+            }
         }
 
         /// <summary>
@@ -165,6 +191,38 @@ namespace BwPlainStringLocalizationPlugin
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Returns the resources for the default language.
+        /// </summary>
+        /// <returns></returns>
+        private IList<LocalizedStringResource> GetResources()
+        {
+            return GetResources(DefaultLanguage);
+        }
+
+        /// <summary>
+        /// Returns the resources for the given language
+        /// </summary>
+        /// <param name="languageFormat"></param>
+        /// <returns></returns>
+        private IList<LocalizedStringResource> GetResources(string languageFormat)
+        {
+            bool containsLanguage = m_languageLocalizationResources.TryGetValue(languageFormat, out var resources);
+            if(containsLanguage)
+            {
+
+                if(resources.Count>1)
+                {
+                    App.Logger.LogWarning("Language <{0}> contains more than one resource! Results will not be accurate!", languageFormat);
+                }
+
+                return resources;
+            }
+
+            App.Logger.LogError("Language <{0}> is not found in the game!", languageFormat);
+            return new List<LocalizedStringResource>();
         }
     }
 }

@@ -186,9 +186,43 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
             }
         }
 
+        public IEnumerable<uint> GetAllModifiedTextsIds()
+        {
+            if (m_modifiedResource == null)
+            {
+                return new List<uint>();
+            }
+
+            return new List<uint>(m_modifiedResource.AlteredTexts.Keys);
+        }
+
+        public IEnumerable<uint> GetDefaultTextIds()
+        {
+            return m_localizedStrings.Select(text => text.Id);
+        }
+
+        public IEnumerable<uint> GetAllTextIds()
+        {
+            return GetDefaultTextIds().Union(GetAllModifiedTextsIds());
+        }
+
+        public string GetText(uint textId)
+        {
+            if(m_modifiedResource != null)
+            {
+                bool containsText = m_modifiedResource.AlteredTexts.TryGetValue(textId, out string text);
+                if(containsText)
+                {
+                    return text;
+                }
+            }
+
+            return GetDefaultText(textId);
+        }
+
         public string GetDefaultText(uint textId)
         {
-            // FIXME hopefully this isn't used often...
+            // if this is too slow add a dictionary for the text ids.
             foreach (var entry in m_localizedStrings)
             {
                 if (textId == entry.Id)
@@ -199,14 +233,14 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
             return null;
         }
 
-        public IEnumerable<uint> GetAllModifiedTextsIds()
+        public bool IsStringEdited(uint id)
         {
-            if (m_modifiedResource == null)
+            if(m_modifiedResource != null)
             {
-                return new List<uint>();
+                return m_modifiedResource.AlteredTexts.ContainsKey(id)
             }
 
-            return new List<uint>(m_modifiedResource.AlteredTexts.Keys);
+            return false;
         }
 
         private void OnModified(ResAssetEntry assetEntry)

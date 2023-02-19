@@ -26,17 +26,14 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         #region string definition class
         internal class LocalizedString
         {
+            public readonly byte[] unknownStringData;
 
-            public readonly uint Id;
-
-            public readonly int DefaultPosition;
             public string Value { get; set; }
 
-            public LocalizedString(uint inId, int inDefaultPosition, string inText)
+
+            public LocalizedString(byte[] inUnknownStringData)
             {
-                Id = inId;
-                DefaultPosition = inDefaultPosition;
-                Value = inText;
+                unknownStringData = inUnknownStringData;
             }
         }
 
@@ -55,12 +52,21 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         /// <summary>
         /// The default texts
         /// </summary>
-        private readonly List<LocalizedString> m_localizedStrings = new List<LocalizedString>();
+        private readonly IDictionary<uint, LocalizedString> m_localizedStringsPerId = new Dictionary<uint, LocalizedString>();
 
         /// <summary>
         /// If any text is altered, the altered text entry will be kept in the modfiedResource.
         /// </summary>
         private ModifiedPlainLocalizationResource m_modifiedResource = null;
+
+        #region unknown resource information
+        private uint m_unknown1 = 0;
+        private uint m_unknown2 = 0;
+        private uint m_unknown3 = 0;
+
+        private byte[] m_unknownSegment1 = new byte[0];
+        private byte[] m_unknownSegment2 = new byte[0];
+        #endregion
 
         public LocalizedStringResource()
         {
@@ -72,51 +78,46 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
 
             base.Read(reader, am, entry, modifiedData);
 
-            Name = new StringBuilder(entry.Filename)
-                .Append(" - ")
-                .Append(entry.Name)
-                .ToString();
+            Name = entry.Filename;
 
             int gameProfile = ProfilesLibrary.DataVersion;
 
-            if((int)ProfileVersion.Anthem != gameProfile && (int)ProfileVersion.DeadSpace != gameProfile)
+            if ((int)ProfileVersion.Anthem != gameProfile && (int)ProfileVersion.DeadSpace != gameProfile)
             {
                 throw new InvalidOperationException("BwPlainStringLocalizationPlugin currenlty only supports Anthem and DeadSpace!");
             }
 
             // actual reading starts here:
-            _ = reader.ReadUInt();
-            _ = reader.ReadUInt();
-            _ = reader.ReadUInt();
+            // Please note that this read method is still very much the original anthem read method! Deadspace functionality is not guaranteed!
+            m_unknown1 = reader.ReadUInt();
+            m_unknown2 = reader.ReadUInt();
+            m_unknown3 = reader.ReadUInt();
 
             long numStrings = reader.ReadLong();
-            reader.Position += 0x18;
+            m_unknownSegment1 = reader.ReadBytes(0x18);
+            Dictionary<uint, List<uint>> hashToStringIdMapping = ReadStringIdHashMap(reader, numStrings);
 
-            Dictionary<uint, List<uint>> hashToStringIdMapping = new Dictionary<uint, List<uint>>();
-
-            for (int i = 0; i < numStrings; i++)
-            {
-                uint hash = reader.ReadUInt();
-                uint stringId = reader.ReadUInt();
-                reader.Position += 8;
-                if (!hashToStringIdMapping.ContainsKey(hash))
-                    hashToStringIdMapping.Add(hash, new List<uint>());
-                hashToStringIdMapping[hash].Add(stringId);
-            }
-
-            reader.Position += 0x18;
+            m_unknownSegment2 = reader.ReadBytes(0x18);
 
             while (reader.Position < reader.Length)
             {
                 uint hash = reader.ReadUInt();
                 int stringLen = reader.ReadInt();
                 string str = reader.ReadSizedString(stringLen);
-                int stringPosition = (int)reader.Position; // anthem is not really supported anyways...
 
                 if (hashToStringIdMapping.ContainsKey(hash))
                 {
                     foreach (uint stringId in hashToStringIdMapping[hash])
-                        m_localizedStrings.Add(new LocalizedString(stringId, stringPosition, str));
+                    {
+                        bool isTextExists = m_localizedStringsPerId.TryGetValue(stringId, out LocalizedString textEntry);
+                        if (!isTextExists)
+                        {
+                            App.Logger.LogWarning("Text Id <{0}> was not assigned a hash value previously!");
+                            textEntry = new LocalizedString(new byte[8]);
+                            m_localizedStringsPerId.Add(stringId, textEntry);
+                        }
+                        textEntry.Value = str;
+                    }
                 }
                 else
                 {
@@ -136,8 +137,47 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
 
         public override byte[] SaveBytes()
         {
-            // TODO implement me!
-            throw new NotImplementedException("Not yet implemented!");
+
+            /*
+             Layout:
+                unk1
+                unk2
+                unk3
+                numberOfStrings
+                unknownSegment1 (size 24)
+
+                numberOfStrings times
+                {
+	                uint hash
+	                uint stringid
+	                byte[] unknownTextData (size8)
+                }
+
+                unknownSegment2 (size 24)
+
+                numberOfStrings times
+                {
+	                uint hash
+	                int textlength
+	                sizedString text
+                }
+             */
+
+            // TODO create tuple entries for all texts with hash, id, unknownTextData
+
+            using (NativeWriter writer = new NativeWriter(new MemoryStream()))
+            {
+
+                writer.Write(m_unknown1);
+                writer.Write(m_unknown2);
+                writer.Write(m_unknown3);
+
+                writer.WriteSizedString("abc")
+            }
+
+
+                // TODO implement me!
+                throw new NotImplementedException("Not yet implemented!");
         }
 
         public override ModifiedResource SaveModifiedResource()
@@ -154,25 +194,13 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         {
 
             // Try to revert if text equals original
-            // -> drawback is long iteration over all texts or another huge instance of textid to text dictionary :(
-
-            // have to try anyway as long as no dedicated remove is present..
-            foreach (var entry in m_localizedStrings)
+            bool isVanillaText = m_localizedStringsPerId.TryGetValue(textId, out LocalizedString textEntry);
+            if(isVanillaText && textEntry.Value.Equals(text))
             {
-                if (textId == entry.Id)
-                {
-                    // found the right one
-                    // neither the entryValue nor the given text can be null
-                    if (entry.Value.Equals(text))
-                    {
                         // It is the original text, remove instead
                         RemoveText(textId);
                         return;
-                    }
-                    break;
-                }
             }
-
             SetText0(textId, text);
         }
 
@@ -198,7 +226,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
 
         public IEnumerable<uint> GetDefaultTextIds()
         {
-            return m_localizedStrings.Select(text => text.Id);
+            return m_localizedStringsPerId.Keys;
         }
 
         public IEnumerable<uint> GetAllTextIds()
@@ -222,14 +250,13 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
 
         public string GetDefaultText(uint textId)
         {
-            // if this is too slow add a dictionary for the text ids.
-            foreach (var entry in m_localizedStrings)
+
+            bool isDefaultText = m_localizedStringsPerId.TryGetValue(textId, out LocalizedString textEntry);
+            if(isDefaultText)
             {
-                if (textId == entry.Id)
-                {
-                    return entry.Value;
-                }
+                return textEntry.Value;
             }
+
             return null;
         }
 
@@ -237,10 +264,38 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         {
             if(m_modifiedResource != null)
             {
-                return m_modifiedResource.AlteredTexts.ContainsKey(id)
+                return m_modifiedResource.AlteredTexts.ContainsKey(id);
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Reads the stringid to hashvalue assignments and the unknown data for the text ids.
+        /// This method fills the m_localizedStringsPerId dictionary.
+        /// </summary>
+        /// <param name="reader"></param>
+        /// <param name="numStrings"></param>
+        /// <returns></returns>
+        private Dictionary<uint, List<uint>> ReadStringIdHashMap(NativeReader reader, long numStrings)
+        {
+            Dictionary<uint, List<uint>> hashToStringIdMapping = new Dictionary<uint, List<uint>>();
+
+            for (int i = 0; i < numStrings; i++)
+            {
+                uint hash = reader.ReadUInt();
+                uint stringId = reader.ReadUInt();
+                byte[] unknownStringData = reader.ReadBytes(8);
+                if (!hashToStringIdMapping.ContainsKey(hash))
+                {
+                    hashToStringIdMapping.Add(hash, new List<uint>());
+                }
+                hashToStringIdMapping[hash].Add(stringId);
+
+                m_localizedStringsPerId.Add(stringId, new LocalizedString(unknownStringData));
+            }
+
+            return hashToStringIdMapping;
         }
 
         private void OnModified(ResAssetEntry assetEntry)

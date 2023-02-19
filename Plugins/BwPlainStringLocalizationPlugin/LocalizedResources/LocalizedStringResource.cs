@@ -12,6 +12,7 @@ using System;
 using Microsoft.SqlServer.Server;
 using System.Net.NetworkInformation;
 using System.Windows.Input;
+using Frosty.Hash;
 
 namespace BwPlainStringLocalizationPlugin.LocalizedResources
 {
@@ -144,26 +145,26 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                 unk2
                 unk3
                 numberOfStrings
-                unknownSegment1 (size 24)
+                unknownSegment1 (size 24 bytes)
 
                 numberOfStrings times
                 {
 	                uint hash
 	                uint stringid
-	                byte[] unknownTextData (size8)
+	                byte[] unknownTextData (size 8 bytes)
                 }
 
-                unknownSegment2 (size 24)
+                unknownSegment2 (size 24 bytes)
 
-                numberOfStrings times
+                numberOfDistinct String Hashes times
                 {
 	                uint hash
-	                int textlength
+	                int textlength -> auto written by WriteSizedString
 	                sizedString text
                 }
              */
 
-            // TODO create tuple entries for all texts with hash, id, unknownTextData
+            IDictionary<uint, LocalizedString> textsEntriesToWrite = GetTextsToWrite();
 
             using (NativeWriter writer = new NativeWriter(new MemoryStream()))
             {
@@ -172,12 +173,35 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                 writer.Write(m_unknown2);
                 writer.Write(m_unknown3);
 
-                writer.WriteSizedString("abc")
+                writer.Write(textsEntriesToWrite.Count);
+
+                writer.Write(m_unknownSegment1);
+
+                IDictionary<int, string> textsPerHash= new Dictionary<int, string>();
+
+                foreach(var entry in textsEntriesToWrite)
+                {
+                    LocalizedString textEntry = entry.Value;
+
+                    int hashValue = Fnv1a.HashString(textEntry.Value);
+
+                    writer.Write(hashValue);
+                    writer.Write(entry.Key);
+                    writer.Write(textEntry.unknownStringData);
+
+                    textsPerHash[hashValue] = textEntry.Value;
+                }
+
+                writer.Write(m_unknownSegment2);
+
+                foreach (var entry in textsPerHash)
+                {
+                    writer.Write(entry.Key);
+                    writer.WriteSizedString(entry.Value);
+                }
+
+                return writer.ToByteArray();
             }
-
-
-                // TODO implement me!
-                throw new NotImplementedException("Not yet implemented!");
         }
 
         public override ModifiedResource SaveModifiedResource()
@@ -345,6 +369,43 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                 ResAssetEntry entry = assetManager.GetResEntry(resRid);
                 App.AssetManager.RevertAsset(entry);
             }
+        }
+
+        /// <summary>
+        /// Returns the actual texts to write back into the resource
+        /// </summary>
+        /// <returns></returns>
+        private IDictionary<uint, LocalizedString> GetTextsToWrite()
+        {
+
+            if(m_modifiedResource == null)
+            {
+                return m_localizedStringsPerId;
+            }
+
+            IDictionary<uint, LocalizedString> textsToWrite = new Dictionary<uint, LocalizedString>();
+            foreach ( var entry in m_localizedStringsPerId)
+            {
+                var locTextEntry = entry.Value;
+                textsToWrite.Add(entry.Key, new LocalizedString(locTextEntry.unknownStringData)
+                    {
+                        Value = locTextEntry.Value
+                    }
+                );
+            }
+
+            foreach( var modifiedEntry in m_modifiedResource.AlteredTexts)
+            {
+                bool existsDefault = textsToWrite.TryGetValue(modifiedEntry.Key, out var locTextEntry);
+                if(!existsDefault)
+                {
+                    locTextEntry = new LocalizedString(new byte[8]);
+                    textsToWrite.Add(modifiedEntry.Key, locTextEntry );
+                }
+                locTextEntry.Value = modifiedEntry.Value;
+            }
+
+            return textsToWrite;
         }
 
     }

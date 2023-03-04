@@ -1,18 +1,14 @@
 ﻿using Frosty.Core;
+using Frosty.Hash;
 using FrostySdk;
 using FrostySdk.IO;
 using FrostySdk.Managers;
 using FrostySdk.Managers.Entries;
 using FrostySdk.Resources;
+using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using System.Linq;
-using System;
-using Microsoft.SqlServer.Server;
-using System.Net.NetworkInformation;
-using System.Windows.Input;
-using Frosty.Hash;
 
 namespace BwPlainStringLocalizationPlugin.LocalizedResources
 {
@@ -96,9 +92,19 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
 
             long numStrings = reader.ReadLong();
             m_unknownSegment1 = reader.ReadBytes(0x18);
+            // position == 60 bytes in the resource
+
             Dictionary<uint, List<uint>> hashToStringIdMapping = ReadStringIdHashMap(reader, numStrings);
 
-            m_unknownSegment2 = reader.ReadBytes(0x18);
+            if((int)ProfileVersion.Anthem == gameProfile)
+            {
+                m_unknownSegment2 = reader.ReadBytes(0x18);
+            }
+            else
+            {
+                // m_unknownSegment2 seems to be not available in deadspace
+                m_unknownSegment2 = new byte[0];
+            }
 
             while (reader.Position < reader.Length)
             {
@@ -149,7 +155,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
 
                 numberOfStrings times
                 {
-	                uint hash
+	                uint hash (seems to originally be nothing more than a counter - at least for deadspace)
 	                uint stringid
 	                byte[] unknownTextData (size 8 bytes)
                 }

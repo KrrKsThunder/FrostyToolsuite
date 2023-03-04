@@ -6,6 +6,7 @@ using FrostySdk.Managers;
 using FrostySdk.Managers.Entries;
 using FrostySdk.Resources;
 using System;
+using System.CodeDom;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -45,6 +46,9 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         /// Event handler to be informed whenever the state of the modified resource changes drastically.
         /// </summary>
         public event EventHandler ResourceEventHandlers;
+
+        // set this to true for additional debug prints.
+        private static readonly bool isPrintDebugTexts = true;
 
         /// <summary>
         /// The default texts
@@ -128,7 +132,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                 }
                 else
                 {
-                    App.Logger.Log("Cannot find {0} in {1}", hash.ToString("x8"), entry.Name);
+                    App.Logger.LogWarning("Cannot find {0} in {1}", hash.ToString("x8"), entry.Name);
                 }
             }
 
@@ -171,6 +175,12 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
              */
 
             IDictionary<uint, LocalizedString> textsEntriesToWrite = GetTextsToWrite();
+
+            if(isPrintDebugTexts)
+            {
+                App.Logger.Log("Wrting text resource <{0}>, including <{1}> modified texts out of <{2}> all texts",
+                    Name, GetAllModifiedTextsIds().ToList().Count, textsEntriesToWrite.Count) ;
+            }
 
             using (NativeWriter writer = new NativeWriter(new MemoryStream()))
             {
@@ -347,6 +357,11 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         {
             ModifyResourceBeforeInsert();
             m_modifiedResource.SetText(textId, text);
+
+            if(isPrintDebugTexts)
+            {
+                App.Logger.Log("Added or replaced text <{0}> in resource <{1}>", textId.ToString("X8"), Name);
+            }
         }
 
         private void ModifyResourceBeforeInsert()

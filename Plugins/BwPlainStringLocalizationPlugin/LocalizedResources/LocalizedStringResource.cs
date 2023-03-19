@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Text;
 
 namespace BwPlainStringLocalizationPlugin.LocalizedResources
 {
@@ -138,7 +139,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
             {
                 uint hash = reader.ReadUInt();
                 int stringLen = reader.ReadInt();
-                string str = reader.ReadSizedString(stringLen);
+                string str = Encoding.UTF8.GetString(reader.ReadBytes(stringLen));
 
                 if (hashToStringIdMapping.ContainsKey(hash))
                 {
@@ -244,7 +245,11 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                 foreach (var entry in textsPerHash)
                 {
                     writer.Write(entry.Key);
-                    writer.WriteSizedString(entry.Value);
+
+                    byte[] stringAsBytes = Encoding.UTF8.GetBytes(entry.Value);
+
+                    writer.Write(stringAsBytes.Length);
+                    writer.Write(stringAsBytes);
                 }
 
                 return writer.ToByteArray();

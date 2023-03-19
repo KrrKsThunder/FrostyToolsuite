@@ -1,5 +1,6 @@
 ﻿using Frosty.Core;
 using Frosty.Hash;
+using FrostyCore;
 using FrostySdk;
 using FrostySdk.IO;
 using FrostySdk.Managers;
@@ -10,6 +11,7 @@ using System.CodeDom;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 
 namespace BwPlainStringLocalizationPlugin.LocalizedResources
 {
@@ -48,7 +50,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         public event EventHandler ResourceEventHandlers;
 
         // set this to true for additional debug prints.
-        private static readonly bool isPrintDebugTexts = true;
+        private static readonly bool isPrintDebugTexts = false;
 
         /// <summary>
         /// The default texts
@@ -60,13 +62,20 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         /// </summary>
         private ModifiedPlainLocalizationResource m_modifiedResource = null;
 
-        #region unknown resource information
-        private uint m_unknown1 = 0;
-        private uint m_unknown2 = 0;
-        private uint m_unknown3 = 0;
+        private int m_headerSize = 0;
 
-        private byte[] m_unknownSegment1 = new byte[0];
-        private byte[] m_unknownSegment2 = new byte[0];
+        #region header information
+        private uint m_probablyLanguageIndex = 0;
+        private uint m_probablyVersionNumber = 0;
+        private uint m_resoureceNameHash = 0;
+
+        private int m_numberOfUnknownSegments = 0;
+
+        private int m_unknown1 = 0;
+        private int m_unknown2 = 0;
+        private int m_unknown3 = 0;
+
+        private byte[] m_unknownSegment = new byte[0];
         #endregion
 
         public LocalizedStringResource()
@@ -88,26 +97,41 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                 throw new InvalidOperationException("BwPlainStringLocalizationPlugin currenlty only supports Anthem and DeadSpace!");
             }
 
+            // according to wannkunstbeikor, the first metadata field contains the size of the header - which is smaller than gman and i believed previously!
+            byte[] metaData = entry.ResMeta;
+            m_headerSize = (int)(metaData[0] | metaData[1] << 8 | metaData[2] << 16 | metaData[3] << 24);
+
             // actual reading starts here:
             // Please note that this read method is still very much the original anthem read method! Deadspace functionality is not guaranteed!
-            m_unknown1 = reader.ReadUInt();
-            m_unknown2 = reader.ReadUInt();
-            m_unknown3 = reader.ReadUInt();
+            // Information about the potential meaning of these fields was provided by wannkunstbeikor
+            m_probablyLanguageIndex = reader.ReadUInt();
+            m_probablyVersionNumber = reader.ReadUInt();
+            m_resoureceNameHash = reader.ReadUInt();
 
-            long numStrings = reader.ReadLong();
-            m_unknownSegment1 = reader.ReadBytes(0x18);
-            // position == 60 bytes in the resource
+            long numberOfKeys = reader.ReadLong();
+            m_numberOfUnknownSegments = reader.ReadInt();
+            long numberOfStrings = reader.ReadLong();
 
-            Dictionary<uint, List<uint>> hashToStringIdMapping = ReadStringIdHashMap(reader, numStrings);
+            m_unknown1 = reader.ReadInt();
+            m_unknown2 = reader.ReadInt();
+            m_unknown3 = reader.ReadInt();
+            // position == m_headerSize bytes in the resource -> this should always be 44 bytes + 16 bytes from the metadata which are not counted
 
-            if((int)ProfileVersion.Anthem == gameProfile)
+            long position = reader.Position;
+            if(position != m_headerSize)
             {
-                m_unknownSegment2 = reader.ReadBytes(0x18);
+                App.Logger.LogWarning("Expected reader position after reading the header of <{0}> was <{1}>, instead posisiton is <{2}>. Reading the actuald data of this resource will likely fail!", Name, m_headerSize, position);
+            }
+
+            Dictionary<uint, List<uint>> hashToStringIdMapping = ReadStringIdHashMap(reader, numberOfKeys);
+
+            if (m_numberOfUnknownSegments > 0)
+            {
+                m_unknownSegment = reader.ReadBytes(m_numberOfUnknownSegments*12);
             }
             else
             {
-                // m_unknownSegment2 seems to be not available in deadspace
-                m_unknownSegment2 = new byte[0];
+                m_unknownSegment = new byte[0];
             }
 
             while (reader.Position < reader.Length)
@@ -150,30 +174,33 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         {
 
             /*
-             Layout:
-                unk1
-                unk2
-                unk3
-                numberOfStrings
-                unknownSegment1 (size 24 bytes)
+             Layout (Courtesy of Wannkunstbeikor):
+                header:
+                    s32 something related to languages im guessing, maybe index, 8 polish, 0 english
+                    s32 seems to be 100 all the time, maybe version
+                    u32 namehash of res
+                    s64 number of keys
+                    s32 number of unks
+                    s64 number of strings
+                    s32 unk[3]
 
-                numberOfStrings times
-                {
-	                uint hash (seems to originally be nothing more than a counter - at least for deadspace)
-	                uint stringid
-	                byte[] unknownTextData (size 8 bytes)
-                }
+                structs:
+                    Key
+                        s32 index
+                        s32 id
+                        u64 sometimes 1 only seen in translations so not english
 
-                unknownSegment2 (size 24 bytes)
+                    Unk
+                        s32 unk1
+                        s64 unk2
 
-                numberOfDistinct String Hashes times
-                {
-	                uint hash
-	                int textlength -> auto written by WriteSizedString
-	                sizedString text
-                }
+                    String
+                        s32 index
+                        s32 length
+                        char string[length] // utf-8 string 
              */
 
+            // TODO rework that method to get already fixed struct of data to write
             IDictionary<uint, LocalizedString> textsEntriesToWrite = GetTextsToWrite();
 
             if(isPrintDebugTexts)
@@ -185,13 +212,17 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
             using (NativeWriter writer = new NativeWriter(new MemoryStream()))
             {
 
+                writer.Write(m_probablyLanguageIndex);
+                writer.Write(m_probablyVersionNumber);
+                writer.Write(m_resoureceNameHash);
+
+                writer.Write(textsEntriesToWrite.Count);
+                writer.Write(m_numberOfUnknownSegments);
+                writer.Write(textsEntriesToWrite.Count);
+
                 writer.Write(m_unknown1);
                 writer.Write(m_unknown2);
                 writer.Write(m_unknown3);
-
-                writer.Write(textsEntriesToWrite.Count);
-
-                writer.Write(m_unknownSegment1);
 
                 IDictionary<int, string> textsPerHash= new Dictionary<int, string>();
 
@@ -208,7 +239,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                     textsPerHash[hashValue] = textEntry.Value;
                 }
 
-                writer.Write(m_unknownSegment2);
+                writer.Write(m_unknownSegment);
 
                 foreach (var entry in textsPerHash)
                 {
@@ -311,26 +342,26 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         }
 
         /// <summary>
-        /// Reads the stringid to hashvalue assignments and the unknown data for the text ids.
+        /// Reads the stringid to position assignments and the unknown data for the text ids.
         /// This method fills the m_localizedStringsPerId dictionary.
         /// </summary>
         /// <param name="reader"></param>
-        /// <param name="numStrings"></param>
+        /// <param name="numberOfKeys"></param>
         /// <returns></returns>
-        private Dictionary<uint, List<uint>> ReadStringIdHashMap(NativeReader reader, long numStrings)
+        private Dictionary<uint, List<uint>> ReadStringIdHashMap(NativeReader reader, long numberOfKeys)
         {
             Dictionary<uint, List<uint>> hashToStringIdMapping = new Dictionary<uint, List<uint>>();
 
-            for (int i = 0; i < numStrings; i++)
+            for (int i = 0; i < numberOfKeys; i++)
             {
-                uint hash = reader.ReadUInt();
+                uint supposedHashButActuallyIndex = reader.ReadUInt();
                 uint stringId = reader.ReadUInt();
                 byte[] unknownStringData = reader.ReadBytes(8);
-                if (!hashToStringIdMapping.ContainsKey(hash))
+                if (!hashToStringIdMapping.ContainsKey(supposedHashButActuallyIndex))
                 {
-                    hashToStringIdMapping.Add(hash, new List<uint>());
+                    hashToStringIdMapping.Add(supposedHashButActuallyIndex, new List<uint>());
                 }
-                hashToStringIdMapping[hash].Add(stringId);
+                hashToStringIdMapping[supposedHashButActuallyIndex].Add(stringId);
 
                 m_localizedStringsPerId.Add(stringId, new LocalizedString(unknownStringData));
             }

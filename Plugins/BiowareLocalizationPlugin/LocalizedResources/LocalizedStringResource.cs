@@ -120,16 +120,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 .Append(entry.Name)
                 .ToString();
 
-            if (ProfilesLibrary.DataVersion == (int)ProfileVersion.Anthem)
-            {
-                ReadAnthemStrings(reader, entry);
-            }
-            else
-            {
-                // Profile Version MEA = 20170321
-                // Profile Version DAI = 20141118
-                Read_MassEffect_DragonAge_Strings(reader);
-            }
+            // Profile Version MEA = 20170321
+            // Profile Version DAI = 20141118
+            Read_MassEffect_DragonAge_Strings(reader);
 
             m_modifiedResource = modifiedData as ModifiedLocalizationResource;
             if (m_modifiedResource != null)
@@ -661,58 +654,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             // revert the metadata just in case
             ReplaceMetaData(m_headerData.DataOffset);
-        }
-
-        /// <summary>
-        /// Fills the String list for Anthem.
-        /// </summary>
-        /// <param name="reader">the data reader.</param>
-        /// <param name="entry">the res asset.</param>
-        private void ReadAnthemStrings(NativeReader reader, ResAssetEntry entry)
-        {
-            _ = reader.ReadUInt();
-            _ = reader.ReadUInt();
-            _ = reader.ReadUInt();
-
-            // initialize these, so there is no accidental crash in anthem
-            m_headerData = new ResourceHeader();
-            m_unknownData = new List<byte[]>();
-            DragonAgeDeclinatedCraftingNames = new DragonAgeDeclinatedAdjectiveTuples(0);
-
-            long numStrings = reader.ReadLong();
-            reader.Position += 0x18;
-
-            Dictionary<uint, List<uint>> hashToStringIdMapping = new Dictionary<uint, List<uint>>();
-
-            for (int i = 0; i < numStrings; i++)
-            {
-                uint hash = reader.ReadUInt();
-                uint stringId = reader.ReadUInt();
-                reader.Position += 8;
-                if (!hashToStringIdMapping.ContainsKey(hash))
-                    hashToStringIdMapping.Add(hash, new List<uint>());
-                hashToStringIdMapping[hash].Add(stringId);
-            }
-
-            reader.Position += 0x18;
-
-            while (reader.Position < reader.Length)
-            {
-                uint hash = reader.ReadUInt();
-                int stringLen = reader.ReadInt();
-                string str = reader.ReadSizedString(stringLen);
-                int stringPosition = (int)reader.Position; // anthem is not really supported anyways...
-
-                if (hashToStringIdMapping.ContainsKey(hash))
-                {
-                    foreach (uint stringId in hashToStringIdMapping[hash])
-                        m_localizedStrings.Add(new LocalizedStringWithId(stringId, stringPosition, str));
-                }
-                else
-                {
-                    App.Logger.Log("Cannot find {0} in {1}", hash.ToString("x8"), entry.Name);
-                }
-            }
         }
 
         /// <summary>

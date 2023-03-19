@@ -1,17 +1,14 @@
 ﻿using Frosty.Core;
 using Frosty.Hash;
-using FrostyCore;
 using FrostySdk;
 using FrostySdk.IO;
 using FrostySdk.Managers;
 using FrostySdk.Managers.Entries;
 using FrostySdk.Resources;
 using System;
-using System.CodeDom;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Numerics;
 using System.Text;
 
 namespace BwPlainStringLocalizationPlugin.LocalizedResources
@@ -29,7 +26,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         {
             public readonly byte[] unknownStringData;
 
-            public string Value { get; set; }
+            public string Text { get; set; }
 
 
             public LocalizedString(byte[] inUnknownStringData)
@@ -152,7 +149,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                             textEntry = new LocalizedString(new byte[8]);
                             m_localizedStringsPerId.Add(stringId, textEntry);
                         }
-                        textEntry.Value = str;
+                        textEntry.Text = str;
                     }
                 }
                 else
@@ -201,13 +198,16 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                         char string[length] // utf-8 string 
              */
 
-            // TODO rework that method to get already fixed struct of data to write
             IDictionary<uint, LocalizedString> textsEntriesToWrite = GetTextsToWrite();
+            int numberOfTextIds = textsEntriesToWrite.Count;
 
-            if(isPrintDebugTexts)
+            var textEntryListsByIndex = GetTextsToWriteByIndex(textsEntriesToWrite);
+            int numberOfUniqueStrings = textEntryListsByIndex.Count;
+
+            if (isPrintDebugTexts)
             {
-                App.Logger.Log("Wrting text resource <{0}>, including <{1}> modified texts out of <{2}> all texts",
-                    Name, GetAllModifiedTextsIds().ToList().Count, textsEntriesToWrite.Count) ;
+                App.Logger.Log("Wrting text resource <{0}>, including <{1}> modified texts out of <{2}> all texts, mapped into <{3}> distinct text indexes.",
+                    Name, GetAllModifiedTextsIds().ToList().Count, numberOfTextIds, numberOfUniqueStrings) ;
             }
 
             using (NativeWriter writer = new NativeWriter(new MemoryStream()))
@@ -217,9 +217,9 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                 writer.Write(m_probablyVersionNumber);
                 writer.Write(m_resoureceNameHash);
 
-                writer.Write(textsEntriesToWrite.Count);
+                writer.Write(numberOfTextIds);
                 writer.Write(m_numberOfUnknownSegments);
-                writer.Write(textsEntriesToWrite.Count);
+                writer.Write(numberOfUniqueStrings);
 
                 writer.Write(m_unknown1);
                 writer.Write(m_unknown2);
@@ -227,31 +227,33 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
 
                 IDictionary<int, string> textsPerHash= new Dictionary<int, string>();
 
-                foreach(var entry in textsEntriesToWrite)
+                foreach(var indexMapping in textEntryListsByIndex)
                 {
-                    LocalizedString textEntry = entry.Value;
+                    int index = indexMapping.Key;
 
-                    int hashValue = Fnv1a.HashString(textEntry.Value);
-
-                    writer.Write(hashValue);
-                    writer.Write(entry.Key);
-                    writer.Write(textEntry.unknownStringData);
-
-                    textsPerHash[hashValue] = textEntry.Value;
+                    foreach(var textToIdMapping in indexMapping.Value)
+                    {
+                        writer.Write(index);
+                        writer.Write(textToIdMapping.Key);
+                        writer.Write(textToIdMapping.Value.unknownStringData);
+                    }
                 }
 
                 writer.Write(m_unknownSegment);
 
-                foreach (var entry in textsPerHash)
+                foreach (var indexMapping in textEntryListsByIndex)
                 {
-                    writer.Write(entry.Key);
+                    int index = indexMapping.Key;
+                    LocalizedString firstEntry = indexMapping.Value[0].Value;
+                    string text = firstEntry.Text;
 
-                    byte[] stringAsBytes = Encoding.UTF8.GetBytes(entry.Value);
+                    byte[] stringAsBytes = Encoding.UTF8.GetBytes(text);
 
                     writer.Write(stringAsBytes.Length);
                     writer.Write(stringAsBytes);
                 }
 
+                // header size should always remain the same, so there is no need to adapt the metadata here.
                 return writer.ToByteArray();
             }
         }
@@ -271,7 +273,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
 
             // Try to revert if text equals original
             bool isVanillaText = m_localizedStringsPerId.TryGetValue(textId, out LocalizedString textEntry);
-            if(isVanillaText && textEntry.Value.Equals(text))
+            if(isVanillaText && textEntry.Text.Equals(text))
             {
                         // It is the original text, remove instead
                         RemoveText(textId);
@@ -330,7 +332,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
             bool isDefaultText = m_localizedStringsPerId.TryGetValue(textId, out LocalizedString textEntry);
             if(isDefaultText)
             {
-                return textEntry.Value;
+                return textEntry.Text;
             }
 
             return null;
@@ -429,7 +431,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         }
 
         /// <summary>
-        /// Returns the actual texts to write back into the resource
+        /// Returns the actual texts to write back into the resource, mapped to their id value.
         /// </summary>
         /// <returns></returns>
         private IDictionary<uint, LocalizedString> GetTextsToWrite()
@@ -446,7 +448,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                 var locTextEntry = entry.Value;
                 textsToWrite.Add(entry.Key, new LocalizedString(locTextEntry.unknownStringData)
                     {
-                        Value = locTextEntry.Value
+                        Text = locTextEntry.Text
                     }
                 );
             }
@@ -459,10 +461,47 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                     locTextEntry = new LocalizedString(new byte[8]);
                     textsToWrite.Add(modifiedEntry.Key, locTextEntry );
                 }
-                locTextEntry.Value = modifiedEntry.Value;
+                locTextEntry.Text = modifiedEntry.Value;
             }
 
             return textsToWrite;
+        }
+
+        /// <summary>
+        /// Returns a dictionary of lists of texts and their Id mapping, mapped to an index. Same texts receive are found mapped to the same index.
+        /// </summary>
+        /// <param name="textsToWriteById">The result of 'GetTextsToWrite()'</param>
+        /// <returns>(Sorted) Dictionary of indices and all the text values to write at that index.</returns>
+        private IDictionary<int, IList<KeyValuePair<uint, LocalizedString>>> GetTextsToWriteByIndex(IDictionary<uint, LocalizedString> textsToWriteById)
+        {
+
+            var textEntriesMappedToHashValue = new Dictionary<int, IList<KeyValuePair<uint, LocalizedString>>>();
+
+            foreach(var entry in textsToWriteById)
+            {
+                LocalizedString textEntry = entry.Value;
+                int hashValue = Fnv1a.HashString(textEntry.Text);
+
+                bool alreadyMapped = textEntriesMappedToHashValue.TryGetValue(hashValue, out IList<KeyValuePair<uint, LocalizedString>> textsForHashValue);
+                if(!alreadyMapped)
+                {
+                    textsForHashValue = new List<KeyValuePair<uint, LocalizedString>>();
+                    textEntriesMappedToHashValue.Add(hashValue, textsForHashValue);
+
+                }
+
+                textsForHashValue.Add(entry);
+            }
+
+            int index = 0;
+            var textEntriesMappedToIndex = new SortedDictionary<int, IList<KeyValuePair<uint, LocalizedString>>>();
+            foreach (var textList in textEntriesMappedToHashValue.Values)
+            {
+                textEntriesMappedToIndex.Add(index, textList);
+                index++;
+            }
+
+            return textEntriesMappedToIndex;
         }
 
     }

@@ -11,6 +11,7 @@ using FrostySdk.Resources;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using static BwPlainStringLocalizationPlugin.LocalizedResources.LocalizedStringResource;
 
 namespace BwPlainStringLocalizationPlugin
 {
@@ -117,13 +118,13 @@ namespace BwPlainStringLocalizationPlugin
 
             ModifiedPlainLocalizationResource modified = ModifiedResource.Read(data) as ModifiedPlainLocalizationResource;
 
-            List<uint> textIds = new List<uint>(modified.AlteredTexts.Keys);
-            textIds.Sort();
+            List<TextKey> textKeys = new List<TextKey>(modified.AlteredTexts.Keys);
+            textKeys.Sort();
 
-            List<string> resourceActions = new List<string>(textIds.Count);
-            foreach (uint textId in textIds)
+            List<string> resourceActions = new List<string>(textKeys.Count);
+            foreach (TextKey key in textKeys)
             {
-                string resourceName = new StringBuilder(name).Append(" (0x").Append(textId.ToString("X8")).Append(')').ToString();
+                string resourceName = new StringBuilder(name).Append(" (0x").Append(key.id.ToString("X8")).Append(") /").Append(key.variation).ToString();
                 string resourceType = "res";
                 string action = "Modify";
 

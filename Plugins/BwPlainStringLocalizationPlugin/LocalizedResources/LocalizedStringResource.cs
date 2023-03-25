@@ -21,20 +21,60 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
     public class LocalizedStringResource : Resource
     {
 
+        #region key
+        public class TextKey : IComparable<TextKey>
+        {
+            public readonly uint id;
+            public readonly long variation;
+
+            public TextKey(uint inId, long inVariation)
+            {
+                id = inId;
+                variation = inVariation;
+            }
+
+            public override int GetHashCode()
+            {
+                return 31 * id.GetHashCode() + variation.GetHashCode();
+            }
+
+            public override bool Equals(object obj)
+            {
+                if (obj == null || obj.GetType() != typeof(TextKey))
+                {
+                    return false;
+                }
+
+                TextKey otherKey = (TextKey)obj;
+                return id == otherKey.id
+                    && variation == otherKey.variation;
+            }
+
+            public int CompareTo(TextKey other)
+            {
+                int value = id.CompareTo(other.id);
+                if(value != 0)
+                {
+                    return value;
+                }
+                return variation.CompareTo(other.variation);
+            }
+        }
+        #endregion
+
         #region string definition class
         internal class LocalizedString
         {
-            public readonly byte[] unknownStringData;
+            public readonly long genderedTextVariant;
 
             public string Text { get; set; }
 
 
-            public LocalizedString(byte[] inUnknownStringData)
+            public LocalizedString(long inGenderedTextVariant)
             {
-                unknownStringData = inUnknownStringData;
+                genderedTextVariant = inGenderedTextVariant;
             }
         }
-
         #endregion
 
         /// <summary>
@@ -53,7 +93,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         /// <summary>
         /// The default texts
         /// </summary>
-        private readonly IDictionary<uint, LocalizedString> m_localizedStringsPerId = new Dictionary<uint, LocalizedString>();
+        private readonly IDictionary<uint, IList<LocalizedString>> m_localizedStringsPerId = new Dictionary<uint, IList<LocalizedString>>();
 
         /// <summary>
         /// If any text is altered, the altered text entry will be kept in the modfiedResource.
@@ -95,7 +135,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                 throw new InvalidOperationException("BwPlainStringLocalizationPlugin currenlty only supports Anthem and DeadSpace!");
             }
 
-            // according to wannkunstbeikor, the first metadata field contains the size of the header - which is smaller than gman and i believed previously!
+            // according to wannkunstbeikor, the first metadata field contains the size of the header.
             byte[] metaData = entry.ResMeta;
             m_headerSize = (int)(metaData[0] | metaData[1] << 8 | metaData[2] << 16 | metaData[3] << 24);
 
@@ -116,16 +156,16 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
             // position == m_headerSize bytes in the resource -> this should always be 44 bytes + 16 bytes from the metadata which are not counted
 
             long position = reader.Position;
-            if(position != m_headerSize)
+            if (position != m_headerSize)
             {
                 App.Logger.LogWarning("Expected reader position after reading the header of <{0}> was <{1}>, instead posisiton is <{2}>. Reading the actuald data of this resource will likely fail!", Name, m_headerSize, position);
             }
 
-            Dictionary<uint, List<uint>> hashToStringIdMapping = ReadStringIdHashMap(reader, numberOfKeys);
+            var indexToStringIdMapping = ReadStringIdHashMap(reader, numberOfKeys);
 
             if (m_numberOfUnknownSegments > 0)
             {
-                m_unknownSegment = reader.ReadBytes(m_numberOfUnknownSegments*12);
+                m_unknownSegment = reader.ReadBytes(m_numberOfUnknownSegments * 12);
             }
             else
             {
@@ -134,27 +174,34 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
 
             while (reader.Position < reader.Length)
             {
-                uint hash = reader.ReadUInt();
+                uint index = reader.ReadUInt();
                 int stringLen = reader.ReadInt();
                 string str = Encoding.UTF8.GetString(reader.ReadBytes(stringLen));
 
-                if (hashToStringIdMapping.ContainsKey(hash))
+                if (indexToStringIdMapping.ContainsKey(index))
                 {
-                    foreach (uint stringId in hashToStringIdMapping[hash])
+                    foreach (var indexEntry in indexToStringIdMapping[index])
                     {
-                        bool isTextExists = m_localizedStringsPerId.TryGetValue(stringId, out LocalizedString textEntry);
+
+                        uint stringId = indexEntry.Key;
+                        long variation = indexEntry.Value;
+
+                        LocalizedString textEntry;
+                        bool isTextExists = m_localizedStringsPerId.TryGetValue(stringId, out IList<LocalizedString> textEntries);
                         if (!isTextExists)
                         {
-                            App.Logger.LogWarning("Text Id <{0}> was not assigned a hash value previously!");
-                            textEntry = new LocalizedString(new byte[8]);
-                            m_localizedStringsPerId.Add(stringId, textEntry);
+                            App.Logger.LogWarning("Text Id <{0}> was not assigned to an index or variation previously!");
+                            textEntries = new List<LocalizedString>();
+                            m_localizedStringsPerId.Add(stringId, textEntries);
                         }
-                        textEntry.Text = str;
+                        textEntry = new LocalizedString(variation) { Text = str };
+                        textEntries.Add(textEntry);
+                        // TODO make sure that variations exist only once!
                     }
                 }
                 else
                 {
-                    App.Logger.LogWarning("Cannot find {0} in {1}", hash.ToString("x8"), entry.Name);
+                    App.Logger.LogWarning("Cannot find {0} in {1}", index.ToString("x8"), entry.Name);
                 }
             }
 
@@ -186,7 +233,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                     Key
                         s32 index
                         s32 id
-                        u64 sometimes 1 only seen in translations so not english
+                        u64 sometimes 1 only seen in translations so not english - Seems to be for gendered text variations.
 
                     Unk
                         s32 unk1
@@ -198,16 +245,16 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                         char string[length] // utf-8 string 
              */
 
-            IDictionary<uint, LocalizedString> textsEntriesToWrite = GetTextsToWrite();
-            int numberOfTextIds = textsEntriesToWrite.Count;
+            IDictionary<uint, IList<LocalizedString>> textsEntriesToWriteById = GetTextsToWrite();
+            var textEntryListsByIndex = GetTextsToWriteByIndex(textsEntriesToWriteById);
 
-            var textEntryListsByIndex = GetTextsToWriteByIndex(textsEntriesToWrite);
-            int numberOfUniqueStrings = textEntryListsByIndex.Count;
+            int numberOfTextKeys = textEntryListsByIndex.Count;
+            int numberOfUniqueStrings = textEntryListsByIndex.Sum(entry => entry.Value.Count);
 
             if (isPrintDebugTexts)
             {
                 App.Logger.Log("Wrting text resource <{0}>, including <{1}> modified texts out of <{2}> all texts, mapped into <{3}> distinct text indexes.",
-                    Name, GetAllModifiedTextsIds().ToList().Count, numberOfTextIds, numberOfUniqueStrings) ;
+                    Name, GetAllModifiedTextsIds().ToList().Count, numberOfTextKeys, numberOfUniqueStrings);
             }
 
             using (NativeWriter writer = new NativeWriter(new MemoryStream()))
@@ -217,7 +264,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                 writer.Write(m_probablyVersionNumber);
                 writer.Write(m_resoureceNameHash);
 
-                writer.Write(numberOfTextIds);
+                writer.Write(numberOfTextKeys);
                 writer.Write(m_numberOfUnknownSegments);
                 writer.Write(numberOfUniqueStrings);
 
@@ -225,17 +272,17 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                 writer.Write(m_unknown2);
                 writer.Write(m_unknown3);
 
-                IDictionary<int, string> textsPerHash= new Dictionary<int, string>();
+                IDictionary<int, string> textsPerHash = new Dictionary<int, string>();
 
-                foreach(var indexMapping in textEntryListsByIndex)
+                foreach (var indexMapping in textEntryListsByIndex)
                 {
                     int index = indexMapping.Key;
 
-                    foreach(var textToIdMapping in indexMapping.Value)
+                    foreach (var textToIdMapping in indexMapping.Value)
                     {
                         writer.Write(index);
                         writer.Write(textToIdMapping.Key);
-                        writer.Write(textToIdMapping.Value.unknownStringData);
+                        writer.Write(textToIdMapping.Value.genderedTextVariant);
                     }
                 }
 
@@ -249,6 +296,7 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
 
                     byte[] stringAsBytes = Encoding.UTF8.GetBytes(text);
 
+                    writer.Write(index);
                     writer.Write(stringAsBytes.Length);
                     writer.Write(stringAsBytes);
                 }
@@ -271,22 +319,38 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         public void SetText(uint textId, string text)
         {
 
+            SetText(textId, text, 0L);
+        }
+
+        public void SetText(uint textId, string text, long variation)
+        {
+
             // Try to revert if text equals original
-            bool isVanillaText = m_localizedStringsPerId.TryGetValue(textId, out LocalizedString textEntry);
-            if(isVanillaText && textEntry.Text.Equals(text))
+            bool isVanillaText = m_localizedStringsPerId.TryGetValue(textId, out IList<LocalizedString> textEntries);
+
+            var textEntry = textEntries.Where(listEntry => listEntry.genderedTextVariant == variation).FirstOrDefault();
+
+            if (isVanillaText && textEntry != null && textEntry.Text.Equals(text))
             {
-                        // It is the original text, remove instead
-                        RemoveText(textId);
-                        return;
+                // It is the original text, remove instead
+                RemoveText(textId);
+                return;
             }
-            SetText0(textId, text);
+            SetText0(textId, text, variation);
         }
 
         public void RemoveText(uint textId)
         {
+            // FIXME alternative: remove all variations?
+            RemoveText(textId, 0);
+        }
+
+
+        public void RemoveText(uint textId, long variation)
+        {
             if (m_modifiedResource != null)
             {
-                m_modifiedResource.RemoveText(textId);
+                m_modifiedResource.RemoveText(textId, variation);
 
                 ModifyResourceAfterDelete();
             }
@@ -299,7 +363,10 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                 return new List<uint>();
             }
 
-            return new List<uint>(m_modifiedResource.AlteredTexts.Keys);
+            return m_modifiedResource.AlteredTexts
+                .Keys
+                    .Select(key => key.id)
+                    .Distinct();
         }
 
         public IEnumerable<uint> GetDefaultTextIds()
@@ -314,35 +381,52 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
 
         public string GetText(uint textId)
         {
-            if(m_modifiedResource != null)
+            return GetText(textId, 0);
+        }
+
+
+        public string GetText(uint textId, long variation)
+        {
+            if (m_modifiedResource != null)
             {
-                bool containsText = m_modifiedResource.AlteredTexts.TryGetValue(textId, out string text);
-                if(containsText)
+                TextKey key = new TextKey(textId, variation);
+                bool containsText = m_modifiedResource.AlteredTexts.TryGetValue(key, out string text);
+                if (containsText)
                 {
                     return text;
                 }
             }
 
-            return GetDefaultText(textId);
+            return GetDefaultText(textId, variation);
         }
 
-        public string GetDefaultText(uint textId)
+        public string GetDefaultText(uint textId, long variation)
         {
 
-            bool isDefaultText = m_localizedStringsPerId.TryGetValue(textId, out LocalizedString textEntry);
-            if(isDefaultText)
+            bool textIdExists = m_localizedStringsPerId.TryGetValue(textId, out IList<LocalizedString> textEntries);
+
+            if (!textIdExists)
             {
-                return textEntry.Text;
+
+                return null;
             }
 
-            return null;
+            return textEntries
+                .Where(textEntry => textEntry.genderedTextVariant == variation)
+                .Select(textEntry => textEntry.Text)
+                .FirstOrDefault();
         }
 
         public bool IsStringEdited(uint id)
         {
-            if(m_modifiedResource != null)
+            return IsStringEdited(id, 0);
+        }
+
+        public bool IsStringEdited(uint id, long variation)
+        {
+            if (m_modifiedResource != null)
             {
-                return m_modifiedResource.AlteredTexts.ContainsKey(id);
+                return m_modifiedResource.AlteredTexts.ContainsKey(new TextKey(id, variation));
             }
 
             return false;
@@ -354,23 +438,26 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         /// </summary>
         /// <param name="reader"></param>
         /// <param name="numberOfKeys"></param>
-        /// <returns></returns>
-        private Dictionary<uint, List<uint>> ReadStringIdHashMap(NativeReader reader, long numberOfKeys)
+        /// <returns>an index, and mapped to that a list of key valuepairs for id and variant</returns>
+        private Dictionary<uint, IList<KeyValuePair<uint, long>>> ReadStringIdHashMap(NativeReader reader, long numberOfKeys)
         {
-            Dictionary<uint, List<uint>> hashToStringIdMapping = new Dictionary<uint, List<uint>>();
+            Dictionary<uint, IList<KeyValuePair<uint, long>>> hashToStringIdMapping = new Dictionary<uint, IList<KeyValuePair<uint, long>>>();
 
             for (int i = 0; i < numberOfKeys; i++)
             {
                 uint supposedHashButActuallyIndex = reader.ReadUInt();
                 uint stringId = reader.ReadUInt();
-                byte[] unknownStringData = reader.ReadBytes(8);
+                long textVariant = reader.ReadLong();
                 if (!hashToStringIdMapping.ContainsKey(supposedHashButActuallyIndex))
                 {
-                    hashToStringIdMapping.Add(supposedHashButActuallyIndex, new List<uint>());
+                    hashToStringIdMapping.Add(supposedHashButActuallyIndex, new List<KeyValuePair<uint, long>>());
                 }
-                hashToStringIdMapping[supposedHashButActuallyIndex].Add(stringId);
+                hashToStringIdMapping[supposedHashButActuallyIndex].Add(new KeyValuePair<uint, long>(stringId, textVariant));
 
-                m_localizedStringsPerId.Add(stringId, new LocalizedString(unknownStringData));
+                if (!m_localizedStringsPerId.ContainsKey(stringId))
+                {
+                    m_localizedStringsPerId.Add(stringId, new List<LocalizedString>());
+                }
             }
 
             return hashToStringIdMapping;
@@ -391,14 +478,14 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
             }
         }
 
-        private void SetText0(uint textId, string text)
+        private void SetText0(uint textId, string text, long variation)
         {
             ModifyResourceBeforeInsert();
-            m_modifiedResource.SetText(textId, text);
+            m_modifiedResource.SetText(textId, text, variation);
 
-            if(isPrintDebugTexts)
+            if (isPrintDebugTexts)
             {
-                App.Logger.Log("Added or replaced text <{0}> in resource <{1}>", textId.ToString("X8"), Name);
+                App.Logger.Log("Added or replaced text <{0}> variation <{1}> in resource <{2}>", textId.ToString("X8"), variation, Name);
             }
         }
 
@@ -431,257 +518,298 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         }
 
         /// <summary>
-        /// Returns the actual texts to write back into the resource, mapped to their id value.
+        /// Returns the actual texts to write back into the resource. Mapped to their id value is the list of all texts with the same id, but different variations
         /// </summary>
         /// <returns></returns>
-        private IDictionary<uint, LocalizedString> GetTextsToWrite()
+        private IDictionary<uint, IList<LocalizedString>> GetTextsToWrite()
         {
 
-            if(m_modifiedResource == null)
+            if (m_modifiedResource == null)
             {
                 return m_localizedStringsPerId;
             }
 
-            IDictionary<uint, LocalizedString> textsToWrite = new Dictionary<uint, LocalizedString>();
-            foreach ( var entry in m_localizedStringsPerId)
+            IDictionary<uint, IList<LocalizedString>> textsToWrite = new SortedDictionary<uint, IList<LocalizedString>>();
+            foreach (var entry in m_localizedStringsPerId)
             {
-                var locTextEntry = entry.Value;
-                textsToWrite.Add(entry.Key, new LocalizedString(locTextEntry.unknownStringData)
+                var locTextEntryList = entry.Value;
+                IList<LocalizedString> idTextList = new List<LocalizedString>();
+                textsToWrite.Add(entry.Key, idTextList);
+
+                foreach (LocalizedString textEntry in locTextEntryList)
+                {
+                    idTextList.Add(new LocalizedString(textEntry.genderedTextVariant)
                     {
-                        Text = locTextEntry.Text
+                        Text = textEntry.Text
                     }
-                );
+                    );
+                }
             }
 
-            foreach( var modifiedEntry in m_modifiedResource.AlteredTexts)
+            foreach (var modifiedEntry in m_modifiedResource.AlteredTexts)
             {
-                bool existsDefault = textsToWrite.TryGetValue(modifiedEntry.Key, out var locTextEntry);
-                if(!existsDefault)
+                bool existsDefault = textsToWrite.TryGetValue(modifiedEntry.Key.id, out var locTextEntryList);
+                if (!existsDefault)
                 {
-                    locTextEntry = new LocalizedString(new byte[8]);
-                    textsToWrite.Add(modifiedEntry.Key, locTextEntry );
+
+                    locTextEntryList = new List<LocalizedString>();
+                    textsToWrite.Add(modifiedEntry.Key.id, locTextEntryList);
                 }
-                locTextEntry.Text = modifiedEntry.Value;
+
+                if (!UpdateTextEntryToWrite(locTextEntryList, modifiedEntry.Key.variation, modifiedEntry.Value))
+                {
+                    LocalizedString locTextEntry = new LocalizedString(modifiedEntry.Key.variation) { Text = modifiedEntry.Value };
+                    locTextEntryList.Add(locTextEntry);
+                }
             }
 
             return textsToWrite;
         }
 
+        private bool UpdateTextEntryToWrite(IList<LocalizedString> listToUpdate, long variation, string text)
+        {
+
+            foreach (var entry in listToUpdate)
+            {
+                if (entry.genderedTextVariant == variation)
+                {
+                    entry.Text = text;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Returns a dictionary of lists of texts and their Id mapping, mapped to an index. Same texts receive are found mapped to the same index.
+        /// --
+        /// Turns out the idea of the id mapping is to have the same id in different variations for different genders instead...
         /// </summary>
         /// <param name="textsToWriteById">The result of 'GetTextsToWrite()'</param>
         /// <returns>(Sorted) Dictionary of indices and all the text values to write at that index.</returns>
-        private IDictionary<int, IList<KeyValuePair<uint, LocalizedString>>> GetTextsToWriteByIndex(IDictionary<uint, LocalizedString> textsToWriteById)
+        private IDictionary<int, IList<KeyValuePair<uint, LocalizedString>>> GetTextsToWriteByIndex(IDictionary<uint, IList<LocalizedString>> textsToWriteById)
         {
 
-            var textEntriesMappedToHashValue = new Dictionary<int, IList<KeyValuePair<uint, LocalizedString>>>();
-
-            foreach(var entry in textsToWriteById)
-            {
-                LocalizedString textEntry = entry.Value;
-                int hashValue = Fnv1a.HashString(textEntry.Text);
-
-                bool alreadyMapped = textEntriesMappedToHashValue.TryGetValue(hashValue, out IList<KeyValuePair<uint, LocalizedString>> textsForHashValue);
-                if(!alreadyMapped)
-                {
-                    textsForHashValue = new List<KeyValuePair<uint, LocalizedString>>();
-                    textEntriesMappedToHashValue.Add(hashValue, textsForHashValue);
-
-                }
-
-                textsForHashValue.Add(entry);
-            }
+            var textEntriesMappedToIndex = new SortedDictionary<int, IList<KeyValuePair<uint, LocalizedString>>>();
+            var textIndexByHashValue = new Dictionary<int, int>();
 
             int index = 0;
-            var textEntriesMappedToIndex = new SortedDictionary<int, IList<KeyValuePair<uint, LocalizedString>>>();
-            foreach (var textList in textEntriesMappedToHashValue.Values)
+            foreach (var entry in textsToWriteById)
             {
-                textEntriesMappedToIndex.Add(index, textList);
-                index++;
+                IList<LocalizedString> textList = entry.Value;
+                IList<LocalizedString> sortedList = textList.OrderBy(text => text.genderedTextVariant).ToList();
+
+                foreach (LocalizedString textEntry in sortedList)
+                {
+                    string text = textEntry.Text;
+                    int hashValue = Fnv1a.HashString(textEntry.Text);
+
+                    bool textAlreadyExists = textIndexByHashValue.TryGetValue(hashValue, out int existingIndex);
+                    if (textAlreadyExists)
+                    {
+                        var indexList = textEntriesMappedToIndex[existingIndex];
+                        indexList.Add(new KeyValuePair<uint, LocalizedString>(entry.Key, textEntry));
+                    }
+                    else
+                    {
+                        var indexList = new List<KeyValuePair<uint, LocalizedString>>
+                        {
+                            new KeyValuePair<uint, LocalizedString>(entry.Key, textEntry)
+                        };
+
+                        textEntriesMappedToIndex[index] = indexList;
+                        textIndexByHashValue[hashValue] = index;
+                        index++;
+                    }
+                }
             }
 
             return textEntriesMappedToIndex;
         }
 
-    }
-
-
-    /// <summary>
-    /// This modified resource is used to store the altered texts only in the project file and mods.
-    /// </summary>
-    public class ModifiedPlainLocalizationResource : ModifiedResource
-    {
 
         /// <summary>
-        /// The dictionary of altered or new texts in this modified resource.
+        /// This modified resource is used to store the altered texts only in the project file and mods.
         /// </summary>
-        public Dictionary<uint, string> AlteredTexts { get; } = new Dictionary<uint, string>();
-
-        /// <summary>
-        /// Version number that is incremented with changes to how modfiles are persisted.
-        /// This should allow to detect outdated mods and maybe even read them correctly if mod writing is ever changed.
-        /// Versions:
-        /// 1: Includes writing the texts as number of texts + textid text tuples
-        /// </summary>
-        private static readonly uint m_MOD_PERSISTENCE_VERSION = 1;
-
-        // Just to make sure we write / overwrite and merge the correct asset!
-        private ulong m_resRid = 0x0;
-
-        /// <summary>
-        /// Sets a modified text into the dictionary.
-        /// </summary>
-        /// <param name="textId">The uint id of the string</param>
-        /// <param name="text">The new string</param>
-        public void SetText(uint textId, string text)
+        public class ModifiedPlainLocalizationResource : ModifiedResource
         {
-            AlteredTexts[textId] = text;
-        }
 
-        /// <summary>
-        /// Verbose remove method accessor.
-        /// </summary>
-        /// <param name="textId"></param>
-        public void RemoveText(uint textId)
-        {
-            AlteredTexts.Remove(textId);
-        }
+            /// <summary>
+            /// The dictionary of altered or new texts in this modified resource.
+            /// </summary>
+            public Dictionary<TextKey, string> AlteredTexts { get; } = new Dictionary<TextKey, string>();
 
-        /// <summary>
-        /// Initializes the resource id, this is used to make sure we modify and overwrite the correct resource.
-        /// </summary>
-        /// <param name="otherResRid"></param>
-        public void InitResourceId(ulong otherResRid)
-        {
-            if (m_resRid != 0x0 && m_resRid != otherResRid)
+            /// <summary>
+            /// Version number that is incremented with changes to how modfiles are persisted.
+            /// This should allow to detect outdated mods and maybe even read them correctly if mod writing is ever changed.
+            /// Versions:
+            /// 1: Includes writing the texts as number of texts + textid text tuples
+            /// </summary>
+            private static readonly uint m_MOD_PERSISTENCE_VERSION = 1;
+
+            // Just to make sure we write / overwrite and merge the correct asset!
+            private ulong m_resRid = 0x0;
+
+            /// <summary>
+            /// Sets a modified text into the dictionary.
+            /// </summary>
+            /// <param name="textId">The uint id of the string</param>
+            /// <param name="text">The new string</param>
+            /// <param name="variation">The string variation</param>
+            public void SetText(uint textId, string text, long variation)
             {
-                string errorMsg = string.Format(
-                        "Trying to initialize modified resource for resRid <{0}> with contents of resource resRid <{1}> - This may indicate a mod made for a different game or language version!",
-                        m_resRid.ToString("X"), otherResRid.ToString("X"));
-                App.Logger.LogWarning(errorMsg);
-            }
-            m_resRid = otherResRid;
-        }
-
-        /// <summary>
-        /// Merges this resource with the given other resource by talking all of the other resources texts, overwriting already present texts for the same id if they exist.
-        /// This method alters the state of this resource.
-        /// </summary>
-        /// <param name="higherPriorityModifiedResource">The other, higher priority resource, to merge into this one.</param>
-        public void Merge(ModifiedPlainLocalizationResource higherPriorityModifiedResource)
-        {
-
-            if (m_resRid != higherPriorityModifiedResource.m_resRid)
-            {
-                string errorMsg = string.Format(
-                        "Trying to merge resource with resRid <{0}> into resource for resRid <{1}> - This may indicate a mod made for a different game version!",
-                        higherPriorityModifiedResource.m_resRid.ToString("X"), m_resRid.ToString("X"));
-                App.Logger.LogWarning(errorMsg);
+                AlteredTexts[new TextKey(textId, variation)] = text;
             }
 
-            foreach (KeyValuePair<uint, string> textEntry in higherPriorityModifiedResource.AlteredTexts)
+            /// <summary>
+            /// Verbose remove method accessor.
+            /// </summary>
+            /// <param name="textId"></param>
+            /// <param name="variation">The string variation</param>
+            public void RemoveText(uint textId, long variation)
             {
-                SetText(textEntry.Key, textEntry.Value);
+                AlteredTexts.Remove(new TextKey(textId, variation));
             }
-        }
 
-        /// <summary>
-        /// This function is responsible for reading in the modified data from the project file.
-        /// </summary>
-        /// <param name="reader"></param>
-        public override void ReadInternal(NativeReader reader)
-        {
-
-            uint modPersistenceVersion = reader.ReadUInt();
-            InitResourceId(reader.ReadULong());
-
-            if (m_MOD_PERSISTENCE_VERSION < modPersistenceVersion)
+            /// <summary>
+            /// Initializes the resource id, this is used to make sure we modify and overwrite the correct resource.
+            /// </summary>
+            /// <param name="otherResRid"></param>
+            public void InitResourceId(ulong otherResRid)
             {
-                ResAssetEntry asset = App.AssetManager.GetResEntry(m_resRid);
-                string assetName = asset != null ? asset.Path : "<unknown>";
-
-                string errorMessage = string.Format("A TextMod for localization resource <{0}> was written with a newer version of the Bioware Localization Plugin and cannot be read! Please update the used Plugin or remove the newer mod!", assetName);
-
-                // TODO make this a setting?!
-                bool shouldThrowExceptionOnPersistenceMisMatch = true;
-                if (shouldThrowExceptionOnPersistenceMisMatch)
+                if (m_resRid != 0x0 && m_resRid != otherResRid)
                 {
-                    throw new InvalidOperationException(errorMessage);
+                    string errorMsg = string.Format(
+                            "Trying to initialize modified resource for resRid <{0}> with contents of resource resRid <{1}> - This may indicate a mod made for a different game or language version!",
+                            m_resRid.ToString("X"), otherResRid.ToString("X"));
+                    App.Logger.LogWarning(errorMsg);
+                }
+                m_resRid = otherResRid;
+            }
+
+            /// <summary>
+            /// Merges this resource with the given other resource by talking all of the other resources texts, overwriting already present texts for the same id if they exist.
+            /// This method alters the state of this resource.
+            /// </summary>
+            /// <param name="higherPriorityModifiedResource">The other, higher priority resource, to merge into this one.</param>
+            public void Merge(ModifiedPlainLocalizationResource higherPriorityModifiedResource)
+            {
+
+                if (m_resRid != higherPriorityModifiedResource.m_resRid)
+                {
+                    string errorMsg = string.Format(
+                            "Trying to merge resource with resRid <{0}> into resource for resRid <{1}> - This may indicate a mod made for a different game version!",
+                            higherPriorityModifiedResource.m_resRid.ToString("X"), m_resRid.ToString("X"));
+                    App.Logger.LogWarning(errorMsg);
                 }
 
-                App.Logger.LogError(errorMessage);
-                return;
+                foreach (KeyValuePair<TextKey, string> textEntry in higherPriorityModifiedResource.AlteredTexts)
+                {
+                    AlteredTexts[textEntry.Key] = textEntry.Value;
+                }
             }
 
-            ReadPrimaryVersion1Texts(reader);
-        }
-
-        /// <summary>
-        /// This function is responsible for writing out the modified data to the project file.
-        /// <para>I.e., the written data is this:
-        /// [uint: resRid][int: numberOfEntries] {numberOfEntries * [[uint: stringId]['nullTerminatedString': String]]}
-        /// </para>
-        /// </summary>
-        /// <param name="writer"></param>
-        /// <exception cref="InvalidOperationException">If called without having initialized the resource</exception>
-        public override void SaveInternal(NativeWriter writer)
-        {
-
-            // assert this is for a valid resource!
-            if (m_resRid == 0x0)
+            /// <summary>
+            /// This function is responsible for reading in the modified data from the project file.
+            /// </summary>
+            /// <param name="reader"></param>
+            public override void ReadInternal(NativeReader reader)
             {
-                throw new InvalidOperationException("Modified resource not bound to any resource!");
+
+                uint modPersistenceVersion = reader.ReadUInt();
+                InitResourceId(reader.ReadULong());
+
+                if (m_MOD_PERSISTENCE_VERSION < modPersistenceVersion)
+                {
+                    ResAssetEntry asset = App.AssetManager.GetResEntry(m_resRid);
+                    string assetName = asset != null ? asset.Path : "<unknown>";
+
+                    string errorMessage = string.Format("A TextMod for localization resource <{0}> was written with a newer version of the Bioware Localization Plugin and cannot be read! Please update the used Plugin or remove the newer mod!", assetName);
+
+                    // TODO make this a setting?!
+                    bool shouldThrowExceptionOnPersistenceMisMatch = true;
+                    if (shouldThrowExceptionOnPersistenceMisMatch)
+                    {
+                        throw new InvalidOperationException(errorMessage);
+                    }
+
+                    App.Logger.LogError(errorMessage);
+                    return;
+                }
+
+                ReadPrimaryVersion1Texts(reader);
             }
 
-            SaveVersion1Texts(writer);
-        }
-
-        public ulong GetResRid()
-        {
-            return m_resRid;
-        }
-
-
-        private void ReadPrimaryVersion1Texts(NativeReader reader)
-        {
-            int numberOfEntries = reader.ReadInt();
-            for (int i = 0; i < numberOfEntries; i++)
+            /// <summary>
+            /// This function is responsible for writing out the modified data to the project file.
+            /// <para>I.e., the written data is this:
+            /// [uint: resRid][int: numberOfEntries] {numberOfEntries * [[uint: stringId]['nullTerminatedString': String]]}
+            /// </para>
+            /// </summary>
+            /// <param name="writer"></param>
+            /// <exception cref="InvalidOperationException">If called without having initialized the resource</exception>
+            public override void SaveInternal(NativeWriter writer)
             {
-                uint textId = reader.ReadUInt();
-                string text = reader.ReadNullTerminatedString();
 
-                SetText(textId, text);
+                // assert this is for a valid resource!
+                if (m_resRid == 0x0)
+                {
+                    throw new InvalidOperationException("Modified resource not bound to any resource!");
+                }
+
+                SaveVersion1Texts(writer);
             }
-        }
 
-        private void SaveVersion1Texts(NativeWriter writer)
-        {
-            // version field
-            writer.Write(1u);
- 
-            writer.Write(m_resRid);
-            writer.Write(AlteredTexts.Count);
-
-            WriteTextEntries(writer, AlteredTexts);
-        }
-
-
-        /// <summary>
-        /// Writes the given dictionary into the given writer
-        /// </summary>
-        /// <param name="textEntriesToWrite"></param>
-        /// <returns></returns>
-        public static void WriteTextEntries(NativeWriter writer, Dictionary<uint, string> textEntriesToWrite)
-        {
-            // Using Frostys NativeWriter / Reader to persist texts in the mod format previously broke certain non ascii characters(even though unicode utf - 8 is used...?).
-            // For that i used another writer in the original BWLocalizationPlugin implementation, which is no longer necessary it seems.
-            foreach (KeyValuePair<uint, string> textEntry in textEntriesToWrite)
+            public ulong GetResRid()
             {
-                writer.Write(textEntry.Key);
-                writer.WriteNullTerminatedString(textEntry.Value);
+                return m_resRid;
             }
-            writer.Flush();
+
+
+            private void ReadPrimaryVersion1Texts(NativeReader reader)
+            {
+                int numberOfEntries = reader.ReadInt();
+                for (int i = 0; i < numberOfEntries; i++)
+                {
+                    uint textId = reader.ReadUInt();
+                    long variation = reader.ReadLong();
+                    string text = reader.ReadNullTerminatedString();
+
+                    SetText(textId, text, variation);
+                }
+            }
+
+            private void SaveVersion1Texts(NativeWriter writer)
+            {
+                // version field
+                writer.Write(1u);
+
+                writer.Write(m_resRid);
+                writer.Write(AlteredTexts.Count);
+
+                WriteTextEntries(writer, AlteredTexts);
+            }
+
+
+            /// <summary>
+            /// Writes the given dictionary into the given writer
+            /// </summary>
+            /// <param name="textEntriesToWrite"></param>
+            /// <returns></returns>
+            public static void WriteTextEntries(NativeWriter writer, Dictionary<TextKey, string> textEntriesToWrite)
+            {
+                // Using Frostys NativeWriter / Reader to persist texts in the mod format previously broke certain non ascii characters(even though unicode utf - 8 is used...?).
+                // For that i used another writer in the original BWLocalizationPlugin implementation, which is no longer necessary it seems.
+                foreach (KeyValuePair<TextKey, string> textEntry in textEntriesToWrite)
+                {
+                    TextKey key = textEntry.Key;
+                    writer.Write(key.id);
+                    writer.Write(key.variation);
+                    writer.WriteNullTerminatedString(textEntry.Value);
+                }
+                writer.Flush();
+            }
         }
     }
 }

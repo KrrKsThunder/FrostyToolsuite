@@ -70,10 +70,36 @@ namespace BwPlainStringLocalizationPlugin
 
         public string GetString(uint id)
         {
+            return GetString(id, 0);
+        }
+
+        /// <summary>
+        /// Returns the string for the given text id and variation number. Returns null if no match is found.
+        /// See LocalizedStringResource GetTextVariations(uint) method to get the list of currently available variations for a text id.
+        /// </summary>
+        /// <param name="id"></param>
+        /// <param name="variation"></param>
+        /// <returns>The string for the given arguments, or null if no such string exists</returns>
+        public string GetString(uint id, long variation)
+        {
             return GetResources()
-                .Select(resource => resource.GetText(id))
+                .Select(resource => resource.GetText(id, variation))
                 .DefaultIfEmpty(null)
                 .First();
+        }
+
+        public IDictionary<long, string> GetAllStringVariations(uint id)
+        {
+            IDictionary<long, string> variationsDictionary = new Dictionary<long, string>();
+            foreach(var resource in GetResources())
+            {
+                foreach(long variation in resource.GetTextVariationNumbers(id))
+                {
+                    variationsDictionary[variation] = resource.GetText(id, variation);
+                }
+            }
+
+            return variationsDictionary;
         }
 
         public string GetString(string stringId)
@@ -89,8 +115,13 @@ namespace BwPlainStringLocalizationPlugin
 
         public bool isStringEdited(uint id)
         {
+            return IsStringEdited(id, 0);
+        }
+
+        public bool IsStringEdited(uint id, long variation)
+        {
             GetResources()
-                .Select(resource => resource.IsStringEdited(id))
+                .Select(resource => resource.IsStringEdited(id, variation))
                 .DefaultIfEmpty(false)
                 .First();
 
@@ -99,12 +130,30 @@ namespace BwPlainStringLocalizationPlugin
 
         public void RevertString(uint id)
         {
-            GetResources().ToList().ForEach(resource => resource.RemoveText(id));
+            GetResources().ToList()
+                .ForEach(resource =>
+                    {
+                        foreach (long variation in resource.GetTextVariationNumbers(id))
+                        {
+                            resource.RemoveText(id, variation);
+                        }
+                    }
+                );
+        }
+
+        public void RevertString(uint textId, long variation)
+        {
+            GetResources().ToList().ForEach(resource => resource.RemoveText(textId, variation));
         }
 
         public void SetString(uint id, string value)
         {
-            GetResources().ToList().ForEach(resource => resource.SetText(id, value));
+            SetString(id, value, 0);
+        }
+
+        public void SetString(uint id, string value, long variation)
+        {
+            GetResources().ToList().ForEach(resource => resource.SetText(id, value, variation));
         }
 
         public void SetString(string id, string value)

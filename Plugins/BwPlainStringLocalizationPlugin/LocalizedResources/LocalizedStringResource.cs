@@ -312,16 +312,11 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
         }
 
         /// <summary>
-        /// Adds or edits the text of the given id.
+        /// Sets the given text for the given id and variations
         /// </summary>
         /// <param name="textId"></param>
         /// <param name="text"></param>
-        public void SetText(uint textId, string text)
-        {
-
-            SetText(textId, text, 0L);
-        }
-
+        /// <param name="variation"></param>
         public void SetText(uint textId, string text, long variation)
         {
 
@@ -333,18 +328,11 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
             if (isVanillaText && textEntry != null && textEntry.Text.Equals(text))
             {
                 // It is the original text, remove instead
-                RemoveText(textId);
+                RemoveText(textId, variation);
                 return;
             }
             SetText0(textId, text, variation);
         }
-
-        public void RemoveText(uint textId)
-        {
-            // FIXME alternative: remove all variations?
-            RemoveText(textId, 0);
-        }
-
 
         public void RemoveText(uint textId, long variation)
         {
@@ -379,9 +367,26 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
             return GetDefaultTextIds().Union(GetAllModifiedTextsIds());
         }
 
-        public string GetText(uint textId)
+        /// <summary>
+        /// Returns the List of variation numbers for the text of the given Id.
+        /// </summary>
+        /// <param name="textId">The text id for which to look for variations</param>
+        /// <returns>The existing variations for the text id</returns>
+        public IEnumerable<long> GetTextVariationNumbers(uint textId)
         {
-            return GetText(textId, 0);
+            List<long> variationsIdList = new List<long>();
+            if (m_modifiedResource != null)
+            {
+                variationsIdList.AddRange(m_modifiedResource.AlteredTexts.Where(entry => entry.Key.id == textId).Select(entry => entry.Key.variation));
+            }
+
+            bool entryExists = m_localizedStringsPerId.TryGetValue(textId, out var textVariationsList);
+            if(entryExists)
+            {
+                variationsIdList.Union(textVariationsList.Select(entry=> entry.genderedTextVariant));
+            }
+
+            return variationsIdList;
         }
 
 
@@ -415,11 +420,6 @@ namespace BwPlainStringLocalizationPlugin.LocalizedResources
                 .Where(textEntry => textEntry.genderedTextVariant == variation)
                 .Select(textEntry => textEntry.Text)
                 .FirstOrDefault();
-        }
-
-        public bool IsStringEdited(uint id)
-        {
-            return IsStringEdited(id, 0);
         }
 
         public bool IsStringEdited(uint id, long variation)

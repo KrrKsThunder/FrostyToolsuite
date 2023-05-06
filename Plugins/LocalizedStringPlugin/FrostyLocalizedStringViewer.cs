@@ -16,6 +16,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using FrostySdk;
+using System.Collections;
+using System.Globalization;
+using System.ComponentModel;
 
 namespace LocalizedStringPlugin
 {
@@ -544,72 +548,225 @@ namespace LocalizedStringPlugin
 
         private void PART_ExportLogButton_Click(object sender, RoutedEventArgs e)
         {
+
             FrostySaveFileDialog sfd = new FrostySaveFileDialog("Save Localized Strings Usage List", "*.txt (Text File)|*.txt", "LocalizedStringsUsage");
             if (sfd.ShowDialog())
             {
                 FrostyTaskWindow.Show("Exporting Localized Strings Usage", "", (task) =>
                 {
-                    uint totalCount = (uint)App.AssetManager.EnumerateEbx().ToList().Count;
+
+                    List<EbxAssetEntry> ebxAssets = App.AssetManager.EnumerateEbx().ToList();
+
+                    uint totalCount = (uint)ebxAssets.Count;
                     uint idx = 0;
-                    Dictionary<string, string> StringInfo = new Dictionary<string, string>();
+                    IDictionary<string, StringBuilder> stringInfo = new SortedDictionary<string, StringBuilder>();
                     foreach (uint stringId in stringIds)
                     {
-                        StringInfo.Add(stringId.ToString("X").ToLower(), stringId.ToString("X8") + ", \"" + db.GetString(stringId).Replace("\r", "").Replace("\n", " ") + "\"");
+                        string hexStringId = stringId.ToString("X");
+                        StringBuilder sb = new StringBuilder(hexStringId);
+                        sb.Append(", \"")
+                            .Append(db.GetString(stringId)
+                                .Replace("\r", "")
+                                .Replace("\n", " "))
+                            .Append("\"");
+
+                        stringInfo.Add(hexStringId.ToLower(), sb);
                     }
-                    foreach (EbxAssetEntry refEntry in App.AssetManager.EnumerateEbx())
+
+                    // TODO use Parallel.foreach() !
+                    foreach (EbxAssetEntry refEntry in ebxAssets)
                     {
                         task.Update("Checking: " + refEntry.Name, (idx++ / (double)totalCount) * 100.0d);
+
                         EbxAsset refAsset = App.AssetManager.GetEbx(refEntry);
-                        List<string> AlreadyDone = new List<string>();
+                        ISet<string> alreadyDone = new HashSet<string>();
+
                         foreach (dynamic obj in refAsset.Objects)
                         {
-                            if (HasProperty(obj, "StringHash"))
-                            {
-                                string TempString = obj.StringHash.ToString("X").ToLower();
-                                if (StringInfo.ContainsKey(TempString) & !AlreadyDone.Contains(TempString))
-                                {
-                                    AlreadyDone.Add(TempString);
-                                    StringInfo[TempString] = StringInfo[TempString] + "\n           -" + refEntry.Name;
-                                }
-                            }
-                            foreach (PropertyInfo pi in obj.GetType().GetProperties())
-                            {
-                                if (pi.PropertyType == typeof(CString))
-                                {
-                                    string TempString = HashStringId(pi.GetValue(obj)).ToString("X").ToLower();
-                                    if (StringInfo.ContainsKey(TempString) & !AlreadyDone.Contains(TempString))
-                                    {
-                                        AlreadyDone.Add(TempString);
-                                        StringInfo[TempString] = StringInfo[TempString] + "\n          -" + refEntry.Name;
-                                    }
-                                }
-                                else if (pi.PropertyType == typeof(List<CString>))
-                                {
-                                    foreach (CString cst in pi.GetValue(obj))
-                                    {
-                                        string TempString = HashStringId(cst).ToString("X").ToLower();
-                                        if (StringInfo.ContainsKey(TempString) & !AlreadyDone.Contains(TempString))
-                                        {
-                                            AlreadyDone.Add(TempString);
-                                            StringInfo[TempString] = StringInfo[TempString] + "\n          -" + refEntry.Name;
-                                        }
-                                    }
-                                }
-                            }
+                            SearchForStrings(obj, stringInfo, alreadyDone, refEntry.Name);
                         }
                     }
 
                     using (StreamWriter writer = new StreamWriter(sfd.FileName))
                     {
-                        foreach (string StringData in StringInfo.Values)
+                        foreach (StringBuilder stringData in stringInfo.Values)
                         {
-                            writer.WriteLine(StringData);
+                            writer.WriteLine(stringData.ToString());
                         }
                     }
                 });
 
                 App.Logger.Log("Localized strings usage saved to {0}", sfd.FileName);
             }
+        }
+
+        private void SearchForStrings(dynamic objToSearch, IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName)
+        {
+            if (HasProperty(objToSearch, "StringHash"))
+            {
+                string tempString = objToSearch.StringHash.ToString("X").ToLower();
+                RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
+            }
+
+            if (HasProperty(objToSearch, "StringId"))
+            {
+                string tempString = objToSearch.StringId.ToString("X").ToLower();
+                RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
+            }
+
+            if (HasProperty(objToSearch, "StringIDOverride"))
+            {
+                string tempString = objToSearch.StringIDOverride.ToString("X").ToLower();
+                RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
+            }
+
+            foreach (PropertyInfo pi in objToSearch.GetType().GetProperties())
+            {
+
+                bool searchNestedObject = false;
+
+                if (pi.PropertyType == typeof(CString))
+                {
+                    RecordDefaultCString(stringInfo, alreadyDone, assetEntryName, pi.GetValue(objToSearch));
+                }
+                else if (pi.PropertyType == typeof(List<CString>))
+                {
+                    RecordStringList(stringInfo, alreadyDone, assetEntryName, pi.GetValue(objToSearch));
+                }
+                else if ("LocalizedStringReference".Equals(pi.PropertyType.Name))
+                {
+                    dynamic stringReference = pi.GetValue(objToSearch);
+                    RecordLocalizedStringReference(stringInfo, alreadyDone, assetEntryName, stringReference.StringId);
+                }
+                else if (typeof(IList).IsAssignableFrom(pi.PropertyType))
+                {
+                    // still does not find ui menu entries
+                    Type[] genericArguments = pi.PropertyType.GetGenericArguments();
+                    if (genericArguments.Length > 0)
+                    {
+                        SearchListProperty(objToSearch, stringInfo, alreadyDone, assetEntryName, pi, genericArguments);
+                    }
+                }
+                else
+                {
+                    searchNestedObject = IsNestedPropertyTypeToBeSearched(pi.PropertyType.Name);
+                }
+
+                if(searchNestedObject)
+                {
+                    SearchForStrings(pi.GetValue(objToSearch), stringInfo, alreadyDone, assetEntryName);
+                }
+            }
+        }
+
+        private void RecordStringList(IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName, List<CString> stringListToRecord)
+        {
+            if (stringListToRecord == null || stringListToRecord.Count == 0)
+            {
+                return;
+            }
+
+            if (ProfilesLibrary.DataVersion != (int)ProfileVersion.DragonAgeInquisition
+                && ProfilesLibrary.DataVersion != (int)ProfileVersion.MassEffectAndromeda)
+            {
+
+                foreach (CString cst in stringListToRecord)
+                {
+                    RecordDefaultCString(stringInfo, alreadyDone, assetEntryName, cst);
+                }
+            }
+            else
+            {
+                foreach (CString cst in stringListToRecord)
+                {
+
+                    // SoundWaveAssets contains text id as part of a 3 figure 'SubtitleStringId'
+                    // This seems to be set up as: <decmial string id>_<0 for male or 1 for female protagonist>_<0 - no idea what this is>
+                    string[] stringParts = cst.ToString().Split('_');
+                    if (stringParts.Length != 3)
+                    {
+                        // go default, i guess
+                        RecordDefaultCString(stringInfo, alreadyDone, assetEntryName, cst);
+                    }
+                    else
+                    {
+                        bool canRead = int.TryParse(stringParts[0], NumberStyles.Number, null, out int textId);
+                        if (canRead)
+                        {
+                            string tempString = textId.ToString("X").ToLower();
+                            RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void RecordDefaultCString(IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName, CString stringToRecord)
+        {
+            string tempString = HashStringId(stringToRecord).ToString("X").ToLower();
+            RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
+        }
+
+        private void RecordLocalizedStringReferenceList(IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName, IList localizedStringReferenceList)
+        {
+            foreach (dynamic stringReference in localizedStringReferenceList)
+            {
+                RecordLocalizedStringReference(stringInfo, alreadyDone, assetEntryName, stringReference.StringId);
+            }
+        }
+
+        private void RecordLocalizedStringReference(IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName, int stringId)
+        {
+            string tempString = stringId.ToString("X").ToLower();
+            RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
+        }
+
+        private void RecordStringUsage(IDictionary<string, StringBuilder> stringInfo, string stringHexId, ISet<string> alreadyDone, string assetEntryName)
+        {
+            if (stringInfo.ContainsKey(stringHexId) & !alreadyDone.Contains(stringHexId))
+            {
+                alreadyDone.Add(stringHexId);
+
+                stringInfo[stringHexId].Append("\n          -")
+                    .Append(assetEntryName);
+            }
+        }
+
+        private void SearchListProperty(dynamic objToSearch, IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName, PropertyInfo pi, Type[] genericArguments)
+        {
+            if ("LocalizedStringReference".Equals(genericArguments[0].Name))
+            {
+                RecordLocalizedStringReferenceList(stringInfo, alreadyDone, assetEntryName, pi.GetValue(objToSearch));
+            }
+            else if (IsNestedPropertyTypeToBeSearched(genericArguments[0].Name))
+            {
+                foreach (dynamic listObject in pi.GetValue(objToSearch))
+                {
+                    SearchForStrings(listObject, stringInfo, alreadyDone, assetEntryName);
+                }
+            }
+        }
+
+        private Boolean IsNestedPropertyTypeToBeSearched(String typeName)
+        {
+            // TODO find remaining missing entries!
+
+            bool searchNestedObject;
+            switch (typeName)
+            {
+                case "ConversationStringReference":
+                case "GetLocalizedStringData":
+                case "PerkCategory":
+                case "Perk":
+                case "ButtonLegendButtonSourceItem":
+                    searchNestedObject = true;
+                    break;
+                default:
+                    searchNestedObject = false;
+                    break;
+            }
+
+            return searchNestedObject;
         }
     }
 }

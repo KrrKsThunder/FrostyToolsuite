@@ -562,7 +562,7 @@ namespace LocalizedStringPlugin
                     IDictionary<string, StringBuilder> stringInfo = new SortedDictionary<string, StringBuilder>();
                     foreach (uint stringId in stringIds)
                     {
-                        string hexStringId = stringId.ToString("X");
+                        string hexStringId = stringId.ToString("X8");
                         StringBuilder sb = new StringBuilder(hexStringId);
                         sb.Append(", \"")
                             .Append(db.GetString(stringId)
@@ -573,7 +573,7 @@ namespace LocalizedStringPlugin
                         stringInfo.Add(hexStringId.ToLower(), sb);
                     }
 
-                    // TODO use Parallel.foreach() !
+                    // Would need to use Parallel.foreach(), but the time consuming getEbx method is not thread save :(
                     foreach (EbxAssetEntry refEntry in ebxAssets)
                     {
                         task.Update("Checking: " + refEntry.Name, (idx++ / (double)totalCount) * 100.0d);
@@ -604,19 +604,19 @@ namespace LocalizedStringPlugin
         {
             if (HasProperty(objToSearch, "StringHash"))
             {
-                string tempString = objToSearch.StringHash.ToString("X").ToLower();
+                string tempString = objToSearch.StringHash.ToString("X8").ToLower();
                 RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
             }
 
             if (HasProperty(objToSearch, "StringId"))
             {
-                string tempString = objToSearch.StringId.ToString("X").ToLower();
+                string tempString = objToSearch.StringId.ToString("X8").ToLower();
                 RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
             }
 
             if (HasProperty(objToSearch, "StringIDOverride"))
             {
-                string tempString = objToSearch.StringIDOverride.ToString("X").ToLower();
+                string tempString = objToSearch.StringIDOverride.ToString("X8").ToLower();
                 RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
             }
 
@@ -640,7 +640,7 @@ namespace LocalizedStringPlugin
                 }
                 else if (typeof(IList).IsAssignableFrom(pi.PropertyType))
                 {
-                    // still does not find ui menu entries
+                    // still does not find all ui menu entries
                     Type[] genericArguments = pi.PropertyType.GetGenericArguments();
                     if (genericArguments.Length > 0)
                     {
@@ -693,7 +693,7 @@ namespace LocalizedStringPlugin
                         bool canRead = int.TryParse(stringParts[0], NumberStyles.Number, null, out int textId);
                         if (canRead)
                         {
-                            string tempString = textId.ToString("X").ToLower();
+                            string tempString = textId.ToString("X8").ToLower();
                             RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
                         }
                     }
@@ -703,7 +703,7 @@ namespace LocalizedStringPlugin
 
         private void RecordDefaultCString(IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName, CString stringToRecord)
         {
-            string tempString = HashStringId(stringToRecord).ToString("X").ToLower();
+            string tempString = HashStringId(stringToRecord).ToString("X8").ToLower();
             RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
         }
 
@@ -717,7 +717,7 @@ namespace LocalizedStringPlugin
 
         private void RecordLocalizedStringReference(IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName, int stringId)
         {
-            string tempString = stringId.ToString("X").ToLower();
+            string tempString = stringId.ToString("X8").ToLower();
             RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
         }
 

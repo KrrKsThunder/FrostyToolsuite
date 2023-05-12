@@ -2,24 +2,24 @@
 using Frosty.Core;
 using Frosty.Core.Controls;
 using Frosty.Core.Windows;
+using FrostySdk;
 using FrostySdk.Ebx;
 using FrostySdk.Interfaces;
 using FrostySdk.IO;
 using FrostySdk.Managers;
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using FrostySdk;
-using System.Collections;
-using System.Globalization;
-using System.ComponentModel;
 
 namespace LocalizedStringPlugin
 {
@@ -404,7 +404,7 @@ namespace LocalizedStringPlugin
             PopulateLocalizedString(stringIds[currentIndex].ToString("X8"));
         }
 
-        private uint HashStringId(string stringId)
+        private static uint HashStringId(string stringId)
         {
             uint result = 0xFFFFFFFF;
             for (int i = 0; i < stringId.Length; i++)
@@ -559,39 +559,111 @@ namespace LocalizedStringPlugin
 
                     uint totalCount = (uint)ebxAssets.Count;
                     uint idx = 0;
-                    IDictionary<string, StringBuilder> stringInfo = new SortedDictionary<string, StringBuilder>();
-                    foreach (uint stringId in stringIds)
-                    {
-                        string hexStringId = stringId.ToString("X8");
-                        StringBuilder sb = new StringBuilder(hexStringId);
-                        sb.Append(", \"")
-                            .Append(db.GetString(stringId)
-                                .Replace("\r", "")
-                                .Replace("\n", " "))
-                            .Append("\"");
+                    int displayPercentCounter = (int)totalCount;
+                    IDictionary<string, List<string>> stringUsage = new SortedDictionary<string, List<string>>();
 
-                        stringInfo.Add(hexStringId.ToLower(), sb);
+                    IDictionary<string, StringBuilder> stringInfo = new SortedDictionary<string, StringBuilder>();
+
+                    int numberOfParallels = Environment.ProcessorCount;
+                    displayPercentCounter += numberOfParallels * 10;
+                    App.Logger.Log("Export parallelized for {0} processors/threads", numberOfParallels);
+
+                    AssetManager[] assetManagers = CreateAdditionalAssetManagers(numberOfParallels, (createdAssetManagers) =>
+                        {
+                            idx += (uint)createdAssetManagers * 10u;
+                            task.Update(
+                                string.Format("Created new assetManager: {0} of {1}", createdAssetManagers + 1, numberOfParallels),
+                                (idx / (double)displayPercentCounter) * 100.0d
+                            );
+                        });
+
+                    task.Update("Getting EBX entries to check", 1d);
+
+                    int numberOfPartialListEntries = (int)totalCount / numberOfParallels;
+
+                    List<Tuple<AssetManager, List<EbxAssetEntry>>> listofPartialLists = new List<Tuple<AssetManager, List<EbxAssetEntry>>>();
+
+                    int startIndex = 0;
+                    for (int i = 0; i < numberOfParallels; i++)
+                    {
+                        listofPartialLists.Add(
+                            new Tuple<AssetManager, List<EbxAssetEntry>>(
+                                assetManagers[i],
+                                ebxAssets.GetRange(startIndex, numberOfPartialListEntries)));
+                        startIndex += numberOfPartialListEntries;
+                    }
+                    if (startIndex + 1 < totalCount)
+                    {
+                        listofPartialLists[0].Item2.AddRange(ebxAssets.GetRange(startIndex, (int)totalCount - startIndex));
                     }
 
-                    // Would need to use Parallel.foreach(), but the time consuming getEbx method is not thread save :(
-                    foreach (EbxAssetEntry refEntry in ebxAssets)
+                    List<Tuple<String, ISet<String>>> stringIdsPerAsset = new List<Tuple<string, ISet<string>>>();
+
+                    Parallel.ForEach(listofPartialLists, partialListTuple =>
                     {
-                        task.Update("Checking: " + refEntry.Name, (idx++ / (double)totalCount) * 100.0d);
-
-                        EbxAsset refAsset = App.AssetManager.GetEbx(refEntry);
-                        ISet<string> alreadyDone = new HashSet<string>();
-
-                        foreach (dynamic obj in refAsset.Objects)
+                        AssetManager am = partialListTuple.Item1;
+                        foreach (EbxAssetEntry refEntry in partialListTuple.Item2)
                         {
-                            SearchForStrings(obj, stringInfo, alreadyDone, refEntry.Name);
+
+                            EbxAsset refAsset = am.GetEbx(refEntry);
+                            ISet<string> assetTextIds = new HashSet<string>();
+
+                            foreach (dynamic obj in refAsset.Objects)
+                            {
+                                SearchForStrings(obj, assetTextIds);
+                            }
+
+                            lock (stringIdsPerAsset)
+                            {
+                                task.Update("Checking: " + refEntry.Name, (idx++ / (double)displayPercentCounter) * 100.0d);
+                                stringIdsPerAsset.Add(new Tuple<string, ISet<string>>(refEntry.Name, assetTextIds));
+                            }
+                        }
+                    });
+
+                    task.Update("Unifying results", 100);
+
+                    foreach (var entry in stringIdsPerAsset)
+                    {
+                        string assetName = entry.Item1;
+
+                        foreach (string textid in entry.Item2)
+                        {
+                            bool exists = stringUsage.TryGetValue(textid, out List<string> assetList);
+                            if (!exists)
+                            {
+                                assetList = new List<string>();
+                                stringUsage[textid] = assetList;
+                            }
+                            assetList.Add(assetName);
                         }
                     }
 
+                    task.Update("Writing file", 100);
+
                     using (StreamWriter writer = new StreamWriter(sfd.FileName))
                     {
-                        foreach (StringBuilder stringData in stringInfo.Values)
+                        foreach (uint stringId in stringIds)
                         {
-                            writer.WriteLine(stringData.ToString());
+                            string hexStringId = stringId.ToString("X8");
+                            StringBuilder sb = new StringBuilder(hexStringId);
+                            sb.Append(", \"")
+                                .Append(db.GetString(stringId)
+                                    .Replace("\r", "")
+                                    .Replace("\n", " "))
+                            .Append("\"");
+
+                            bool exists = stringUsage.TryGetValue(hexStringId, out List<string> assetList);
+                            if (exists)
+                            {
+                                assetList.Sort();
+                                foreach (string assetName in assetList)
+                                {
+                                    sb.Append("\n          -")
+                                        .Append(assetName);
+                                }
+                            }
+                            writer.WriteLine(sb.ToString());
                         }
                     }
                 });
@@ -600,24 +672,24 @@ namespace LocalizedStringPlugin
             }
         }
 
-        private void SearchForStrings(dynamic objToSearch, IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName)
+        private static void SearchForStrings(dynamic objToSearch, ISet<string> assetTextIds)
         {
             if (HasProperty(objToSearch, "StringHash"))
             {
                 string tempString = objToSearch.StringHash.ToString("X8").ToLower();
-                RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
+                assetTextIds.Add(tempString);
             }
 
             if (HasProperty(objToSearch, "StringId"))
             {
                 string tempString = objToSearch.StringId.ToString("X8").ToLower();
-                RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
+                assetTextIds.Add(tempString);
             }
 
             if (HasProperty(objToSearch, "StringIDOverride"))
             {
                 string tempString = objToSearch.StringIDOverride.ToString("X8").ToLower();
-                RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
+                assetTextIds.Add(tempString);
             }
 
             foreach (PropertyInfo pi in objToSearch.GetType().GetProperties())
@@ -627,16 +699,16 @@ namespace LocalizedStringPlugin
 
                 if (pi.PropertyType == typeof(CString))
                 {
-                    RecordDefaultCString(stringInfo, alreadyDone, assetEntryName, pi.GetValue(objToSearch));
+                    RecordDefaultCString(assetTextIds, pi.GetValue(objToSearch));
                 }
                 else if (pi.PropertyType == typeof(List<CString>))
                 {
-                    RecordStringList(stringInfo, alreadyDone, assetEntryName, pi.GetValue(objToSearch));
+                    RecordStringList(assetTextIds, pi.GetValue(objToSearch));
                 }
                 else if ("LocalizedStringReference".Equals(pi.PropertyType.Name))
                 {
                     dynamic stringReference = pi.GetValue(objToSearch);
-                    RecordLocalizedStringReference(stringInfo, alreadyDone, assetEntryName, stringReference.StringId);
+                    RecordLocalizedStringReference(assetTextIds, stringReference.StringId);
                 }
                 else if (typeof(IList).IsAssignableFrom(pi.PropertyType))
                 {
@@ -644,7 +716,7 @@ namespace LocalizedStringPlugin
                     Type[] genericArguments = pi.PropertyType.GetGenericArguments();
                     if (genericArguments.Length > 0)
                     {
-                        SearchListProperty(objToSearch, stringInfo, alreadyDone, assetEntryName, pi, genericArguments);
+                        SearchListProperty(objToSearch, assetTextIds, pi, genericArguments);
                     }
                 }
                 else
@@ -652,14 +724,14 @@ namespace LocalizedStringPlugin
                     searchNestedObject = IsNestedPropertyTypeToBeSearched(pi.PropertyType.Name);
                 }
 
-                if(searchNestedObject)
+                if (searchNestedObject)
                 {
-                    SearchForStrings(pi.GetValue(objToSearch), stringInfo, alreadyDone, assetEntryName);
+                    SearchForStrings(pi.GetValue(objToSearch), assetTextIds);
                 }
             }
         }
 
-        private void RecordStringList(IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName, List<CString> stringListToRecord)
+        private static void RecordStringList(ISet<string> assetTextIds, List<CString> stringListToRecord)
         {
             if (stringListToRecord == null || stringListToRecord.Count == 0)
             {
@@ -672,7 +744,7 @@ namespace LocalizedStringPlugin
 
                 foreach (CString cst in stringListToRecord)
                 {
-                    RecordDefaultCString(stringInfo, alreadyDone, assetEntryName, cst);
+                    RecordDefaultCString(assetTextIds, cst);
                 }
             }
             else
@@ -686,7 +758,7 @@ namespace LocalizedStringPlugin
                     if (stringParts.Length != 3)
                     {
                         // go default, i guess
-                        RecordDefaultCString(stringInfo, alreadyDone, assetEntryName, cst);
+                        RecordDefaultCString(assetTextIds, cst);
                     }
                     else
                     {
@@ -694,60 +766,49 @@ namespace LocalizedStringPlugin
                         if (canRead)
                         {
                             string tempString = textId.ToString("X8").ToLower();
-                            RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
+                            assetTextIds.Add(tempString);
                         }
                     }
                 }
             }
         }
 
-        private void RecordDefaultCString(IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName, CString stringToRecord)
+        private static void RecordDefaultCString(ISet<string> assetTextIds, CString stringToRecord)
         {
             string tempString = HashStringId(stringToRecord).ToString("X8").ToLower();
-            RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
+            assetTextIds.Add(tempString);
         }
 
-        private void RecordLocalizedStringReferenceList(IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName, IList localizedStringReferenceList)
+        private static void RecordLocalizedStringReferenceList(ISet<string> assetTextIds, IList localizedStringReferenceList)
         {
             foreach (dynamic stringReference in localizedStringReferenceList)
             {
-                RecordLocalizedStringReference(stringInfo, alreadyDone, assetEntryName, stringReference.StringId);
+                RecordLocalizedStringReference(assetTextIds, stringReference.StringId);
             }
         }
 
-        private void RecordLocalizedStringReference(IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName, int stringId)
+        private static void RecordLocalizedStringReference(ISet<string> assetTextIds, int stringId)
         {
             string tempString = stringId.ToString("X8").ToLower();
-            RecordStringUsage(stringInfo, tempString, alreadyDone, assetEntryName);
+            assetTextIds.Add(tempString);
         }
 
-        private void RecordStringUsage(IDictionary<string, StringBuilder> stringInfo, string stringHexId, ISet<string> alreadyDone, string assetEntryName)
-        {
-            if (stringInfo.ContainsKey(stringHexId) & !alreadyDone.Contains(stringHexId))
-            {
-                alreadyDone.Add(stringHexId);
-
-                stringInfo[stringHexId].Append("\n          -")
-                    .Append(assetEntryName);
-            }
-        }
-
-        private void SearchListProperty(dynamic objToSearch, IDictionary<string, StringBuilder> stringInfo, ISet<string> alreadyDone, string assetEntryName, PropertyInfo pi, Type[] genericArguments)
+        private static void SearchListProperty(dynamic objToSearch, ISet<string> assetTextIds, PropertyInfo pi, Type[] genericArguments)
         {
             if ("LocalizedStringReference".Equals(genericArguments[0].Name))
             {
-                RecordLocalizedStringReferenceList(stringInfo, alreadyDone, assetEntryName, pi.GetValue(objToSearch));
+                RecordLocalizedStringReferenceList(assetTextIds, pi.GetValue(objToSearch));
             }
             else if (IsNestedPropertyTypeToBeSearched(genericArguments[0].Name))
             {
                 foreach (dynamic listObject in pi.GetValue(objToSearch))
                 {
-                    SearchForStrings(listObject, stringInfo, alreadyDone, assetEntryName);
+                    SearchForStrings(listObject, assetTextIds);
                 }
             }
         }
 
-        private Boolean IsNestedPropertyTypeToBeSearched(String typeName)
+        private static bool IsNestedPropertyTypeToBeSearched(String typeName)
         {
             // TODO find remaining missing entries!
 
@@ -767,6 +828,68 @@ namespace LocalizedStringPlugin
             }
 
             return searchNestedObject;
+        }
+
+        private AssetManager[] CreateAdditionalAssetManagers(int numberOfParallels, Action<int> updateAction)
+        {
+
+            if (numberOfParallels < 1)
+            {
+                throw new InvalidOperationException("At least one thread must execute the export string loading!");
+            }
+
+            AssetManager[] assetManagers = new AssetManager[numberOfParallels];
+
+            assetManagers[0] = App.AssetManager;
+
+            string basePath = Config.Get<string>("GamePath", null, ConfigScope.Game);
+
+            byte[] key = null;
+            byte[] sourceKey = KeyManager.Instance.GetKey("Key1");
+            if (sourceKey != null)
+            {
+                key = new byte[sourceKey.Length];
+                Array.Copy(sourceKey, key, sourceKey.Length);
+            }
+
+            for (int i = 1; i < numberOfParallels; i++)
+            {
+
+
+                FileSystem fileSystem = new FileSystem(basePath);
+                foreach (FileSystemSource source in ProfilesLibrary.Sources)
+                    fileSystem.AddSource(source.Path, source.SubDirs);
+                fileSystem.Initialize(key);
+
+                ResourceManager resourceManager = new ResourceManager(fileSystem);
+                resourceManager.SetLogger(new DummyLogger());
+                resourceManager.Initialize();
+
+                AssetManager assetManager = new AssetManager(fileSystem, resourceManager);
+
+                assetManager.Initialize();
+
+                updateAction(i);
+
+                assetManagers[i] = assetManager;
+            }
+
+            return assetManagers;
+        }
+    }
+
+    public class DummyLogger : ILogger
+    {
+        public void Log(string text, params object[] vars)
+        {
+        }
+
+        public void LogError(string text, params object[] vars)
+        {
+        }
+
+        public void LogWarning(string text, params object[] vars)
+        {
         }
     }
 }

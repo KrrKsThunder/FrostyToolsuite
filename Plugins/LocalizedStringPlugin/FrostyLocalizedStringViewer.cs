@@ -3,6 +3,7 @@ using Frosty.Core;
 using Frosty.Core.Controls;
 using Frosty.Core.Windows;
 using FrostySdk;
+using FrostySdk.Attributes;
 using FrostySdk.Ebx;
 using FrostySdk.Interfaces;
 using FrostySdk.IO;
@@ -549,11 +550,14 @@ namespace LocalizedStringPlugin
         private void PART_ExportLogButton_Click(object sender, RoutedEventArgs e)
         {
 
-            FrostySaveFileDialog sfd = new FrostySaveFileDialog("Save Localized Strings Usage List", "*.txt (Text File)|*.txt", "LocalizedStringsUsage");
+            FrostySaveFileDialog sfd = new FrostySaveFileDialog("Save Localized Strings Usage List", "*.txt (Text File)|*.txt", "LocalizedStringsUsage", ProfilesLibrary.ProfileName + "_LocalizedStringsUsage");
             if (sfd.ShowDialog())
             {
                 FrostyTaskWindow.Show("Exporting Localized Strings Usage", "", (task) =>
                 {
+
+                    ISet<string> typesToCheckDeeper = GetTypesWithNestedStringIdsProperties();
+                    task.Update("Finding nested string id properties to search for", 0d);
 
                     List<EbxAssetEntry> ebxAssets = App.AssetManager.EnumerateEbx().ToList();
 
@@ -577,7 +581,7 @@ namespace LocalizedStringPlugin
                             );
                         });
 
-                    task.Update("Getting EBX entries to check", 1d);
+                    task.Update("Getting EBX entries to check", (idx / (double)displayPercentCounter) * 100.0d);
 
                     int numberOfPartialListEntries = (int)totalCount / numberOfParallels;
 
@@ -610,7 +614,7 @@ namespace LocalizedStringPlugin
 
                             foreach (dynamic obj in refAsset.Objects)
                             {
-                                SearchForStrings(obj, assetTextIds);
+                                SearchForStrings(obj, assetTextIds, typesToCheckDeeper);
                             }
 
                             lock (stringIdsPerAsset)
@@ -672,7 +676,7 @@ namespace LocalizedStringPlugin
             }
         }
 
-        private static void SearchForStrings(dynamic objToSearch, ISet<string> assetTextIds)
+        private static void SearchForStrings(dynamic objToSearch, ISet<string> assetTextIds, ISet<string> typesToCheckDeeper)
         {
             if (HasProperty(objToSearch, "StringHash"))
             {
@@ -716,17 +720,17 @@ namespace LocalizedStringPlugin
                     Type[] genericArguments = pi.PropertyType.GetGenericArguments();
                     if (genericArguments.Length > 0)
                     {
-                        SearchListProperty(objToSearch, assetTextIds, pi, genericArguments);
+                        SearchListProperty(objToSearch, assetTextIds, pi, genericArguments, typesToCheckDeeper);
                     }
                 }
                 else
                 {
-                    searchNestedObject = IsNestedPropertyTypeToBeSearched(pi.PropertyType.Name);
+                    searchNestedObject = typesToCheckDeeper.Contains(pi.PropertyType.Name);
                 }
 
                 if (searchNestedObject)
                 {
-                    SearchForStrings(pi.GetValue(objToSearch), assetTextIds);
+                    SearchForStrings(pi.GetValue(objToSearch), assetTextIds, typesToCheckDeeper);
                 }
             }
         }
@@ -793,41 +797,19 @@ namespace LocalizedStringPlugin
             assetTextIds.Add(tempString);
         }
 
-        private static void SearchListProperty(dynamic objToSearch, ISet<string> assetTextIds, PropertyInfo pi, Type[] genericArguments)
+        private static void SearchListProperty(dynamic objToSearch, ISet<string> assetTextIds, PropertyInfo pi, Type[] genericArguments, ISet<string> typesToCheckDeeper)
         {
             if ("LocalizedStringReference".Equals(genericArguments[0].Name))
             {
                 RecordLocalizedStringReferenceList(assetTextIds, pi.GetValue(objToSearch));
             }
-            else if (IsNestedPropertyTypeToBeSearched(genericArguments[0].Name))
+            else if (typesToCheckDeeper.Contains(genericArguments[0].Name))
             {
                 foreach (dynamic listObject in pi.GetValue(objToSearch))
                 {
                     SearchForStrings(listObject, assetTextIds);
                 }
             }
-        }
-
-        private static bool IsNestedPropertyTypeToBeSearched(String typeName)
-        {
-            // TODO find remaining missing entries!
-
-            bool searchNestedObject;
-            switch (typeName)
-            {
-                case "ConversationStringReference":
-                case "GetLocalizedStringData":
-                case "PerkCategory":
-                case "Perk":
-                case "ButtonLegendButtonSourceItem":
-                    searchNestedObject = true;
-                    break;
-                default:
-                    searchNestedObject = false;
-                    break;
-            }
-
-            return searchNestedObject;
         }
 
         private AssetManager[] CreateAdditionalAssetManagers(int numberOfParallels, Action<int> updateAction)
@@ -875,6 +857,94 @@ namespace LocalizedStringPlugin
             }
 
             return assetManagers;
+        }
+
+        private static ISet<string> GetTypesWithNestedStringIdsProperties()
+        {
+
+            HashSet<string> typeWithStringIds = new HashSet<string>();
+            Dictionary<string, ISet<string>> typesWithNestedType = new Dictionary<string, ISet<string>>();
+
+            foreach (Type type in TypeLibrary.GetConcreteTypes())
+            {
+                string typeName = type.Name;
+
+                // enums and primitives
+                if (type.IsEnum || type.IsPrimitive)
+                {
+                    continue;
+                }
+
+                // class properties
+                foreach (var pi in type.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly))
+                {
+                    if (pi.Name.StartsWith("_"))
+                        continue;
+
+                    string propTypeName = pi.PropertyType.Name;
+                    if ("Int32".Equals(propTypeName) && pi.Name.ToLower().Contains("stringid"))
+                    {
+                        typeWithStringIds.Add(typeName);
+                    }
+
+                    if (!pi.PropertyType.IsPrimitive)
+                    {
+                        string propBaseTypeName;
+                        if (propTypeName == "List`1" || propTypeName == "PointerRef")
+                        {
+                            propBaseTypeName = pi.GetCustomAttribute<EbxFieldMetaAttribute>().BaseType?.Name;
+
+                            if (propTypeName == "List`1")
+                            {
+                                Type listType = pi.PropertyType.GetGenericArguments()[0];
+                                propBaseTypeName = listType.Name;
+                            }
+                        }
+                        else
+                        {
+                            propBaseTypeName = pi.PropertyType.Name;
+                        }
+
+                        if (propBaseTypeName != null)
+                        {
+
+                            bool exists = typesWithNestedType.TryGetValue(propBaseTypeName, out ISet<string> containedIn);
+                            {
+                                if (!exists)
+                                {
+                                    containedIn = new HashSet<string>();
+                                    typesWithNestedType.Add(propBaseTypeName, containedIn);
+                                }
+                                containedIn.Add(typeName);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // now get all the types that contain string ids or nested types with string ids.
+            ISet<string> typesToSearch = new HashSet<string>(typeWithStringIds);
+
+            foreach (string typeName in typeWithStringIds)
+            {
+                RecursivelyAddContainingTypes(typesToSearch, typeName, typesWithNestedType);
+            }
+
+            return typesToSearch;
+        }
+
+        private static void RecursivelyAddContainingTypes(ISet<string> typeSetToUpdate, string currentType, Dictionary<string, ISet<string>> typesWithNestedType)
+        {
+            if (typesWithNestedType.TryGetValue(currentType, out ISet<string> containingTypes))
+            {
+                foreach (string containingType in containingTypes)
+                {
+                    if (typeSetToUpdate.Add(containingType))
+                    {
+                        RecursivelyAddContainingTypes(typeSetToUpdate, containingType, typesWithNestedType);
+                    }
+                }
+            }
         }
     }
 

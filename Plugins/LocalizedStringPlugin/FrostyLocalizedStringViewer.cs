@@ -11,6 +11,7 @@ using FrostySdk.Managers;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Data.SqlTypes;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -550,6 +551,10 @@ namespace LocalizedStringPlugin
         private void PART_ExportLogButton_Click(object sender, RoutedEventArgs e)
         {
 
+            bool printUnusedStrings = true;
+            int numberOfParallels = Environment.ProcessorCount;
+            int assetManagerProgressOffset = 20;
+
             FrostySaveFileDialog sfd = new FrostySaveFileDialog("Save Localized Strings Usage List", "*.txt (Text File)|*.txt", "LocalizedStringsUsage", ProfilesLibrary.ProfileName + "_LocalizedStringsUsage");
             if (sfd.ShowDialog())
             {
@@ -568,13 +573,12 @@ namespace LocalizedStringPlugin
 
                     IDictionary<string, StringBuilder> stringInfo = new SortedDictionary<string, StringBuilder>();
 
-                    int numberOfParallels = Environment.ProcessorCount;
-                    displayPercentCounter += numberOfParallels * 10;
+                    displayPercentCounter += numberOfParallels * assetManagerProgressOffset;
                     App.Logger.Log("Export parallelized for {0} processors/threads", numberOfParallels);
 
                     AssetManager[] assetManagers = CreateAdditionalAssetManagers(numberOfParallels, (createdAssetManagers) =>
                         {
-                            idx += (uint)createdAssetManagers * 10u;
+                            idx += (uint) (createdAssetManagers * assetManagerProgressOffset);
                             task.Update(
                                 string.Format("Created new assetManager: {0} of {1}", createdAssetManagers + 1, numberOfParallels),
                                 (idx / (double)displayPercentCounter) * 100.0d
@@ -598,7 +602,11 @@ namespace LocalizedStringPlugin
                     }
                     if (startIndex + 1 < totalCount)
                     {
-                        listofPartialLists[0].Item2.AddRange(ebxAssets.GetRange(startIndex, (int)totalCount - startIndex));
+                        int missingNo = (int)totalCount - startIndex;
+                        for (int i = 0; i< missingNo; i++)
+                        {
+                            listofPartialLists[i].Item2.Add(ebxAssets[startIndex++]);
+                        }
                     }
 
                     List<Tuple<String, ISet<String>>> stringIdsPerAsset = new List<Tuple<string, ISet<string>>>();
@@ -650,24 +658,28 @@ namespace LocalizedStringPlugin
                         foreach (uint stringId in stringIds)
                         {
                             string hexStringId = stringId.ToString("X8");
-                            StringBuilder sb = new StringBuilder(hexStringId);
-                            sb.Append(", \"")
-                                .Append(db.GetString(stringId)
-                                    .Replace("\r", "")
-                                    .Replace("\n", " "))
-                            .Append("\"");
-
-                            bool exists = stringUsage.TryGetValue(hexStringId, out List<string> assetList);
-                            if (exists)
+                            bool exists = stringUsage.TryGetValue(hexStringId.ToLower(), out List<string> assetList);
+                            if(exists || printUnusedStrings)
                             {
-                                assetList.Sort();
-                                foreach (string assetName in assetList)
+
+                                StringBuilder sb = new StringBuilder(hexStringId);
+                                sb.Append(", \"")
+                                    .Append(db.GetString(stringId)
+                                        .Replace("\r", "")
+                                        .Replace("\n", " "))
+                                .Append("\"");
+
+                                if (exists)
                                 {
-                                    sb.Append("\n          -")
-                                        .Append(assetName);
+                                    assetList.Sort();
+                                    foreach (string assetName in assetList)
+                                    {
+                                        sb.Append("\n          -")
+                                            .Append(assetName);
+                                    }
                                 }
+                                writer.WriteLine(sb.ToString());
                             }
-                            writer.WriteLine(sb.ToString());
                         }
                     }
                 });
@@ -716,7 +728,6 @@ namespace LocalizedStringPlugin
                 }
                 else if (typeof(IList).IsAssignableFrom(pi.PropertyType))
                 {
-                    // still does not find all ui menu entries
                     Type[] genericArguments = pi.PropertyType.GetGenericArguments();
                     if (genericArguments.Length > 0)
                     {
@@ -807,7 +818,7 @@ namespace LocalizedStringPlugin
             {
                 foreach (dynamic listObject in pi.GetValue(objToSearch))
                 {
-                    SearchForStrings(listObject, assetTextIds);
+                    SearchForStrings(listObject, assetTextIds, typesToCheckDeeper);
                 }
             }
         }

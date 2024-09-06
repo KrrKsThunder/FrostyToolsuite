@@ -25,10 +25,11 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// </summary>
         public event EventHandler ResourceEventHandlers;
 
+        // TODO disable this afterwards!
         /// <summary>
         /// Toggle to enable / disable further debug log messages -Remember to turn this off before release!
         /// </summary>
-        private static readonly bool m_printVerificationTexts = false;
+        private static readonly bool m_printVerificationTexts = true;
 
         /// <summary>
         /// How to handle incorrect metadata offsets in the resource header.
@@ -115,6 +116,12 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 .Append(entry.Name)
                 .ToString();
 
+            if(m_printVerificationTexts)
+            {
+                string resMetaStrig = resMeta.Select(b => b.ToString("X")).Aggregate((a, b) => a + b);
+                App.Logger.Log(Name + " ResMeta is: " + resMetaStrig);
+            }
+
             if (ProfilesLibrary.DataVersion == (int)ProfileVersion.Anthem)
             {
                 ReadAnthemStrings(reader, entry);
@@ -127,10 +134,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             }
 
             m_modifiedResource = modifiedData as ModifiedLocalizationResource;
-            if (m_modifiedResource != null)
-            {
-                m_modifiedResource.InitResourceId(resRid);
-            }
+            m_modifiedResource?.InitResourceId(resRid);
 
             // keep informed about changes...
             entry.AssetModified += (s, e) => OnModified((ResAssetEntry)s);
@@ -441,15 +445,15 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 i++;
             }
 
-            if(i< numberOfDeclinations)
+            if (i < numberOfDeclinations)
             {
                 int missingNo = numberOfDeclinations - i;
-                for(int j = 0; j< missingNo; j++)
+                for (int j = 0; j < missingNo; j++)
                 {
                     adjectiveStrings.Add(null);
                 }
             }
-            else if( i > numberOfDeclinations)
+            else if (i > numberOfDeclinations)
             {
                 App.Logger.LogWarning("The requested resource <{0}> contains more than the stated number of <{1}> declinations for adjectiveId <{2}>!", Name, numberOfDeclinations, adjectiveId);
             }
@@ -609,13 +613,14 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         }
 
         /// <summary>
-        /// Returns a list of tuples with the id and bit offset for declinated adjectives used when crafting items in DA:I
+        /// Returns a list of tuples with the id and bit offset for declinated adjectives used when crafting items in DA:I.
+        /// When verificationTexts are enabled, then instead of LocalizedStringWithId the returned instances will be of type DAILocalizedAdjective.
         /// </summary>
         /// <param name="reader"></param>
         /// <param name="countAndOffset"></param>
-        /// <param name="craftingTextBlockId"></param>
-        /// <returns></returns>
-        private static List<LocalizedStringWithId> ReadDragonAgeDeclinatedItemNamePartIdsAndOffsets(NativeReader reader, DataCountAndOffsets countAndOffset)
+        /// <param name="declinationNumber"></param>
+        /// <returns>List of LocalizedStringWithId</returns>
+        private static List<LocalizedStringWithId> ReadDragonAgeDeclinatedItemNamePartIdsAndOffsets(NativeReader reader, DataCountAndOffsets countAndOffset, int declinationNumber)
         {
 
             List<LocalizedStringWithId> itemCraftingNameParts = new List<LocalizedStringWithId>();
@@ -623,7 +628,12 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             {
                 uint textId = reader.ReadUInt();
                 int defaultPosition = reader.ReadInt();
-                LocalizedStringWithId namePartInfo = new LocalizedStringWithId(textId, defaultPosition);
+
+                LocalizedStringWithId namePartInfo =
+                    m_printVerificationTexts ?
+                    new DAILocalizedAdjective(textId, defaultPosition, declinationNumber)
+                    : new LocalizedStringWithId(textId, defaultPosition);
+
                 itemCraftingNameParts.Add(namePartInfo);
             }
 
@@ -652,6 +662,12 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             {
                 m_modifiedResource = newModifiedResource;
                 ResourceEventHandlers?.Invoke(this, new EventArgs());
+            }
+
+            // TODO replace this later
+            if(newModifiedResource != null)
+            {
+                ResourceTestUtils.ReadWriteTest(this);
             }
 
             // revert the metadata just in case
@@ -747,14 +763,15 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             {
                 DataCountAndOffsets dataCountAndOffset = m_headerData.DragonAgeDeclinatedCraftingNamePartsCountAndOffset[i];
 
-                List<LocalizedStringWithId> declinatedAdjectives = ReadDragonAgeDeclinatedItemNamePartIdsAndOffsets(reader, dataCountAndOffset);
+                List<LocalizedStringWithId> declinatedAdjectives = ReadDragonAgeDeclinatedItemNamePartIdsAndOffsets(reader, dataCountAndOffset, i);
 
                 DragonAgeDeclinatedCraftingNames.AddAllAdjectiveForDeclination(declinatedAdjectives, i);
             }
 
+            // verify that the current position is at the stated dataOffset, i.e., the start of the main text data.
             DataOffsetReaderPositionSanityCheck(reader);
 
-
+            // finally read the actual text content
             ReadStrings(reader, m_encodingRootNode, GetAllLocalizedStrings());
         }
 
@@ -891,7 +908,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 foreach (LocalizedString stringDefinition in allLocalizedStrings)
                 {
                     int bitOffset = stringDefinition.DefaultPosition;
-                    string textName = stringDefinition.ToString();
 
                     bool sanitiyCheckSuccess = CheckPositionExists(textLengthInBytes, bitOffset, stringDefinition.ToString());
                     if (sanitiyCheckSuccess)

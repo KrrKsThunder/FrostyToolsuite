@@ -336,7 +336,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         }
 
         /// <summary>
-        /// Sets the given texts position to the given start position, returning the posiiton offset for the next textblock.
+        /// Sets the given texts position to the given start position, returning the position offset for the next textblock.
         /// </summary>
         /// <param name="startPosition"></param>
         /// <param name="textBlock"></param>
@@ -511,6 +511,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 currentTextPosition = ResourceUtils.UpdateTextAndGetNextTextPosition(currentTextPosition, textPosition);
             }
 
+            ///* enable this for testing and debugging */
+            //ResourceTestUtils.VerifyTextPositions(uniqueTextPositions.Values);
+
             SortedDictionary<uint, EncodedTextPosition> primaryTextsSortedById = MapEncodedTextPositionById(encodedPrimaryTexts, uniqueTextPositions);
 
             List<SortedDictionary<uint, EncodedTextPosition>> encodedDeclinatedArticleTextsById = new List<SortedDictionary<uint, EncodedTextPosition>>();
@@ -541,6 +544,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             foreach (KeyValuePair<uint, string> entry in textsById)
             {
                 string text = entry.Value;
+
                 bool encodedTextExists = dictionaryOfEncodedTexts.TryGetValue(text, out EncodedText encodedText);
                 if (!encodedTextExists)
                 {

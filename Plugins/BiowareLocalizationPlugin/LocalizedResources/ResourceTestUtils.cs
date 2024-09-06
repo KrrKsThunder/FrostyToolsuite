@@ -4,9 +4,11 @@ using FrostySdk.Managers;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Windows.Annotations;
 
 namespace BiowareLocalizationPlugin.LocalizedResources
 {
@@ -137,19 +139,18 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// Verifies that the final text bit offsets in the encoded text-bit stream match.
         /// </summary>
         /// <param name="texts"></param>
-        public static void VerifyTextPositions(SortedDictionary<uint, EncodedTextPosition> texts)
+        public static void VerifyTextPositions( IEnumerable<EncodedTextPosition> texts)
         {
-            byte[] byteTexts = ResourceUtils.GetTextRepresentationToWrite( new SortedSet<EncodedTextPosition>( texts.Values));
+            var sortedTexts = new SortedSet<EncodedTextPosition>(texts);
+            byte[] byteTexts = ResourceUtils.GetTextRepresentationToWrite(sortedTexts);
             bool[] bitTexts = new bool[byteTexts.Length * 8];
 
             BitArray bitArray = new BitArray(byteTexts);
             bitArray.CopyTo(bitTexts, 0);
 
             int missMatches = 0;
-            foreach (var entry in texts)
+            foreach (var text in sortedTexts)
             {
-                EncodedTextPosition text = entry.Value;
-
                 bool[] textArray = new bool[text.GetLength()];
                 Array.Copy(bitTexts, text.Position, textArray, 0, text.GetLength());
 
@@ -160,7 +161,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 }
             }
 
-            if(missMatches == texts.Count)
+            if(missMatches == sortedTexts.Count)
             {
                 App.Logger.Log("None of the texts at the positions match!");
             }
@@ -170,7 +171,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             }
             else
             {
-                App.Logger.Log("There are <{0}> texts out of <{1}> positioned incorrectly!", missMatches, texts.Count);
+                App.Logger.Log("There are <{0}> texts out of <{1}> positioned incorrectly!", missMatches, sortedTexts.Count);
             }
         }
 
@@ -200,7 +201,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 recreation.Read(reader, null, mockEntry, null);
             }
 
-            // // Note that recreated node list does still not match exactly! No matter wheter GetNodeList or GetNodeListToWrite is used <_<
+            // /* Note that recreated node list does still not match exactly! No matter wheter GetNodeList or GetNodeListToWrite is used <_< */
             //var recreatedNodeList = ResourceUtils.GetNodeList(resource.GetRootNode());
             //var reRecreatedNodeList = ResourceUtils.GetNodeListToWrite(recreation.GetRootNode());
             //VerifySame(recreatedNodeList, reRecreatedNodeList);
@@ -227,8 +228,8 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     SortedDictionary<uint, string> originalBlockData = new SortedDictionary<uint, string>();
                     SortedDictionary<uint, string> recreatedBlockData = new SortedDictionary<uint, string>();
 
-                    resource.DragonAgeDeclinatedCraftingNames.GetAdjectivesOfDeclination(i).ToList().ForEach(ls => originalBlockData[ls.Id] = ls.Value);
-                    recreation.DragonAgeDeclinatedCraftingNames.GetAdjectivesOfDeclination(i).ToList().ForEach(ls => originalBlockData[ls.Id] = ls.Value);
+                    resource.GetAllDeclinatedAdjectivesIds().ToList().ForEach(id => originalBlockData[id] = resource.GetDeclinatedAdjective(id)[i]);
+                    recreation.DragonAgeDeclinatedCraftingNames.GetAdjectivesOfDeclination(i).ToList().ForEach(ls => recreatedBlockData[ls.Id] = ls.Value);
 
                     TestTextsFromReReadResource(originalBlockData, recreatedBlockData, $"declinatedAdjectives[{i}]");
                 }

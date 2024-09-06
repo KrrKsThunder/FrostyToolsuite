@@ -59,7 +59,8 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             string uk4AsHex = Unknown4.ToString("X");
 
             StringBuilder sb = new StringBuilder();
-            sb.Append($"unknown1: <{Unknown1} | 0x{uk1AsHex}>\n")
+            sb.Append("\n") // newline after resource name
+                .Append($"unknown1: <{Unknown1} | 0x{uk1AsHex}>\n")
                 .Append($"unknown2: <{Unknown2} | 0x{uk2AsHex}>\n")
                 .Append($"unknown3: <{Unknown3} | 0x{uk3AsHex}>\n")
                 .Append($"unknown4: <{Unknown4} | 0x{uk4AsHex}>\n")
@@ -371,6 +372,22 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         public override string ToString()
         {
             return Id.ToString("X8");
+        }
+    }
+
+    // only used when verification is enabled
+    public class DAILocalizedAdjective : LocalizedStringWithId
+    {
+        public readonly int Declination;
+
+        public DAILocalizedAdjective(uint inId, int inDefaultPosition, int inDeclination) : base(inId, inDefaultPosition)
+        {
+            this.Declination = inDeclination;
+        }
+
+        public override string ToString()
+        {
+            return string.Format("adjective {0} of declination {1}", Id.ToString("X8"), Declination);
         }
     }
 

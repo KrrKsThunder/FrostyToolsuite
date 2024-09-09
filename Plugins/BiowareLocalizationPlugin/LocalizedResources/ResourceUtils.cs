@@ -75,6 +75,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
         public static byte[] ReadUnkownSegment(NativeReader reader, DataCountAndOffsets countAndOffset)
         {
+            // these seem to be tuples or a map of twice the same (integer) value
             return reader.ReadBytes(((int)countAndOffset.Count) * 8);
         }
 

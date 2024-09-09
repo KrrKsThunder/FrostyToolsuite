@@ -20,13 +20,13 @@ Header
     uint stringsCount				(pos 36)
     uint stringsOffset				(pos 40)
 
-        // Until the nodeOffset is reached
-        // If there are three or more entries in here,
-        // then the corresponding 8ByteBlockData after the second one contain ids and bit offsets for the declinated adjectives for text parts used for crafted items in DA:I (Note that these ids are not the same accross languages!)
-    N times Unknown8ByteBlockCountAndOffset
+    // Until the nodeOffset is reached
+    // If they exist, then at least 2 times.
+    // - a last entry might contain zeros or the same as the last position and is not used
+    N times 8ByteBlockCountAndOffset
     {
-        uint unknownCounts
-        uint unknownOffset
+        uint counts
+        uint offset
     }
 }
 
@@ -48,13 +48,22 @@ StringData
         (size = 8 per string)
 }
 	
-// Position = Unknown8ByteBlockCountAndOffset[0].unknownOffset
-// The next data blocks appears the same N times as their Unknown8ByteBlockCountAndOffset counterpart in the header
-// Everything past the second of these blocks contains the bit offsets of the text pieces used for crafted item names in DA:I
+// Position = 8ByteBlockCountAndOffset[0].offset
+// The next data blocks appears the same N times as their 8ByteBlockCountAndOffset counterpart in the header
+//
+// - The first block contains the text id of crafted weapons or parts as number, but shifted to the range of 0xA0000000. Example: ID 0x43FAA for "Haft" becomes 0xA0043FAA.
+//   After this ID, the second number links the item to the variation of adjective to use ( e.g., declination or conjugation or whaever ), these take the form of 0 ( for english )
+//   The variant numbers are take the form of 0 (no variations, english), 0x101,0x102,0x201,0x202,0x301,0x302 also with 0x10000 variants like 10101,10202 etc.
+//   This is likely linked to the LanguageDefinition... LocalizedLanguage Assets found under Systems/Localization in DAI and Systems/Bioware/Localization in MEA
+//
+// - The second block maps these variants to the block offset to search the ID in. This block offset is the number of count + offset tubles, including those for nodes and strings.
+//   That means that the lowest number is 4, counting update from there. For english, this means this contains a single tuple: 0 - 4, while for french it goes up to 0x102020 - xB
+//
+// - Everything past the second of these blocks contains the bit offsets of the text pieces used for crafted item names in DA:I. The first of this adjective id including blocks has the numbering 4 in the previous block.
 N times 8ByteBlockData
 {
-    // Position = Unknown8ByteBlockCountAndOffset[index].unknownOffset
-    byte[].Length = Unknown8ByteBlockCountAndOffset[index].unknownCounts * 8
+    // Position = 8ByteBlockCountAndOffset[index].offset
+    byte[].Length = 8ByteBlockCountAndOffset[index].counts * 8
 }
 
 // Position = dataOffset

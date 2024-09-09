@@ -8,6 +8,7 @@ using System.IO;
 using System.Text;
 using System.Linq;
 using System;
+using System.Numerics;
 
 namespace BiowareLocalizationPlugin.LocalizedResources
 {
@@ -25,11 +26,10 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// </summary>
         public event EventHandler ResourceEventHandlers;
 
-        // TODO disable this afterwards!
         /// <summary>
         /// Toggle to enable / disable further debug log messages -Remember to turn this off before release!
         /// </summary>
-        private static readonly bool m_printVerificationTexts = true;
+        private static readonly bool m_printVerificationTexts = false;
 
         /// <summary>
         /// How to handle incorrect metadata offsets in the resource header.
@@ -664,12 +664,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 ResourceEventHandlers?.Invoke(this, new EventArgs());
             }
 
-            // TODO replace this later
-            if(newModifiedResource != null)
-            {
-                ResourceTestUtils.ReadWriteTest(this);
-            }
-
             // revert the metadata just in case
             ReplaceMetaData(m_headerData.DataOffset);
         }
@@ -738,6 +732,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             if (m_printVerificationTexts)
             {
                 App.Logger.Log("Read header data for <{0}>: {1}", Name, m_headerData.ToString());
+                App.Logger.Log("... size of resource is <{0}> bytes", reader.Length);
             }
 
             // position of huffman nodes is header.nodeOffset
@@ -752,6 +747,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             // position after string data is the start of header.unknownDataDef[0].offset
             PositionSanityCheck(reader, m_headerData.FirstUnknownDataDefSegments[0].Offset, "StringData");
             m_unknownData = new List<byte[]>();
+
             foreach (DataCountAndOffsets dataCountAndOffset in m_headerData.FirstUnknownDataDefSegments)
             {
                 m_unknownData.Add(ResourceUtils.ReadUnkownSegment(reader, dataCountAndOffset));

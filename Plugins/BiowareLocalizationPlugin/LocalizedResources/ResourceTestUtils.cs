@@ -223,12 +223,21 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             }
             else
             {
-                for(int i = 0; i< dragonAgeBlocksCount; i++)
+                for (int i = 0; i < dragonAgeBlocksCount; i++)
                 {
                     SortedDictionary<uint, string> originalBlockData = new SortedDictionary<uint, string>();
                     SortedDictionary<uint, string> recreatedBlockData = new SortedDictionary<uint, string>();
 
-                    resource.GetAllDeclinatedAdjectivesIds().ToList().ForEach(id => originalBlockData[id] = resource.GetDeclinatedAdjective(id)[i]);
+                    resource.GetAllDeclinatedAdjectivesIds().ToList().ForEach(
+                        id =>
+                        {
+                            // apparently there is an check necessary, here?!
+                            var declinationsList = resource.GetDeclinatedAdjective(id);
+                            if(declinationsList.Count >i)
+                            {
+                                originalBlockData[id] = resource.GetDeclinatedAdjective(id)[i];
+                            }
+                        });
                     recreation.DragonAgeDeclinatedCraftingNames.GetAdjectivesOfDeclination(i).ToList().ForEach(ls => recreatedBlockData[ls.Id] = ls.Value);
 
                     TestTextsFromReReadResource(originalBlockData, recreatedBlockData, $"declinatedAdjectives[{i}]");
@@ -265,13 +274,13 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     }
                 }
 
-                if (missMatching == originalData.Count)
-                {
-                    App.Logger.Log("...None of the {0} texts match! {1} Text(s) were missing!", blockNameForErrorMessages, missingIds);
-                }
-                else if (missMatching == 0)
+                if (missMatching == 0)
                 {
                     App.Logger.Log("...All of the {0} texts match", blockNameForErrorMessages);
+                }
+                else if (missMatching == originalData.Count)
+                {
+                    App.Logger.Log("...None of the {0} texts match! {1} Text(s) were missing!", blockNameForErrorMessages, missingIds);
                 }
                 else
                 {

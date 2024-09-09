@@ -1,4 +1,5 @@
 ﻿using Frosty.Core;
+using FrostySdk.Managers;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -87,7 +88,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 }
             }
 
-            sb.Append($"DataOffset is: <{DataOffset}>\n");
+            sb.Append($"DataOffset is: <{DataOffset}>");
 
             return sb.ToString();
         }
@@ -375,7 +376,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         }
     }
 
-    // only used when verification is enabled
+    // Only used when verification is enabled.
     public class DAILocalizedAdjective : LocalizedStringWithId
     {
         public readonly int Declination;
@@ -387,7 +388,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
         public override string ToString()
         {
-            return string.Format("adjective {0} of declination {1}", Id.ToString("X8"), Declination);
+            return string.Format("adjective <{0}> of declination {1}", base.ToString(), Declination);
         }
     }
 

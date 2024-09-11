@@ -4,11 +4,9 @@ using FrostySdk.Managers;
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Windows.Annotations;
 
 namespace BiowareLocalizationPlugin.LocalizedResources
 {
@@ -80,18 +78,18 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         {
             List<List<char>> characterProbabilitySet = new List<List<char>>();
 
-            List<HuffmanNode> levelList = new List<HuffmanNode>() {rootNode};
+            List<HuffmanNode> levelList = new List<HuffmanNode>() { rootNode };
 
-            while(levelList.Count > 0)
+            while (levelList.Count > 0)
             {
                 List<char> levelChars = new List<char>();
-                foreach(var node in levelList)
+                foreach (var node in levelList)
                 {
-                    if(node.Left == null && node.Right == null)
+                    if (node.Left == null && node.Right == null)
                     {
                         levelChars.Add(node.Letter);
                     }
-                    else if (! (node.Left != null && node.Right != null ))
+                    else if (!(node.Left != null && node.Right != null))
                     {
                         App.Logger.Log("Uneven tree detected!");
                     }
@@ -103,16 +101,16 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             int multiplier = 1;
             StringBuilder charString = new StringBuilder();
-            for(int level = characterProbabilitySet.Count - 1; level >=0; level--)
+            for (int level = characterProbabilitySet.Count - 1; level >= 0; level--)
             {
                 List<char> levelChars = characterProbabilitySet[level];
 
                 //flip levelchars to recreate original encoding
                 levelChars.Reverse();
 
-                foreach(char c in levelChars)
+                foreach (char c in levelChars)
                 {
-                    charString.Append( string.Join("", Enumerable.Repeat(c, multiplier)));
+                    charString.Append(string.Join("", Enumerable.Repeat(c, multiplier)));
                 }
 
                 multiplier *= 2;
@@ -139,7 +137,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// Verifies that the final text bit offsets in the encoded text-bit stream match.
         /// </summary>
         /// <param name="texts"></param>
-        public static void VerifyTextPositions( IEnumerable<EncodedTextPosition> texts)
+        public static void VerifyTextPositions(IEnumerable<EncodedTextPosition> texts)
         {
             var sortedTexts = new SortedSet<EncodedTextPosition>(texts);
             byte[] byteTexts = ResourceUtils.GetTextRepresentationToWrite(sortedTexts);
@@ -154,18 +152,18 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 bool[] textArray = new bool[text.GetLength()];
                 Array.Copy(bitTexts, text.Position, textArray, 0, text.GetLength());
 
-                if(!textArray.SequenceEqual(text.EncodedText.Value))
+                if (!textArray.SequenceEqual(text.EncodedText.Value))
                 {
                     //App.Logger.Log("Text with id <{0}> does not match in position!", entry.Key.ToString("X8"));
                     missMatches++;
                 }
             }
 
-            if(missMatches == sortedTexts.Count)
+            if (missMatches == sortedTexts.Count)
             {
                 App.Logger.Log("None of the texts at the positions match!");
             }
-            else if(missMatches == 0)
+            else if (missMatches == 0)
             {
                 App.Logger.Log("All of the text positions fit");
             }
@@ -184,7 +182,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             App.Logger.Log("Test Rereading saved Data for <{0}>", resource.Name);
 
             SortedDictionary<uint, string> currentData = new SortedDictionary<uint, string>();
-            foreach(var entry in resource.GetAllPrimaryTexts())
+            foreach (var entry in resource.GetAllPrimaryTexts())
             {
                 currentData[entry.Item1] = entry.Item2;
             }
@@ -193,10 +191,10 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             byte[] copyMetaData = new byte[resource.ResourceMeta.Length];
             resource.ResourceMeta.CopyTo(copyMetaData, 0);
-            ResAssetEntry mockEntry = new ResAssetEntry() {ResRid=0, Name="dummy", ResMeta=copyMetaData };
+            ResAssetEntry mockEntry = new ResAssetEntry() { ResRid = 0, Name = "dummy", ResMeta = copyMetaData };
             LocalizedStringResource recreation = new LocalizedStringResource();
 
-            using(NativeReader reader = new NativeReader(new MemoryStream(savedOutput)))
+            using (NativeReader reader = new NativeReader(new MemoryStream(savedOutput)))
             {
                 recreation.Read(reader, null, mockEntry, null);
             }
@@ -214,10 +212,13 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             TestTextsFromReReadResource(currentData, recreatedData, "primary");
 
+            CompareMappingDictionaries(resource.ItemNamesToCraftingAdjectiveVariation, recreation.ItemNamesToCraftingAdjectiveVariation, "ItemNamesToCraftingAdjectiveVariation");
+            CompareMappingDictionaries(resource.AdjectiveVariationToDeclinationTuple, recreation.AdjectiveVariationToDeclinationTuple, "AdjectiveVariationToDeclinationTuple");
+
             int dragonAgeBlocksCount = resource.DragonAgeDeclinatedCraftingNames.NumberOfDeclinations;
             int recreatedDragonAgeBlocksCount = recreation.DragonAgeDeclinatedCraftingNames.NumberOfDeclinations;
 
-            if(dragonAgeBlocksCount != recreatedDragonAgeBlocksCount)
+            if (dragonAgeBlocksCount != recreatedDragonAgeBlocksCount)
             {
                 App.Logger.Log("... Expected <{0}> blocks of declinated adjectives, got <{1}> instead!", dragonAgeBlocksCount, recreatedDragonAgeBlocksCount);
             }
@@ -233,7 +234,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                         {
                             // apparently there is an check necessary, here?!
                             var declinationsList = resource.GetDeclinatedAdjective(id);
-                            if(declinationsList.Count >i)
+                            if (declinationsList.Count > i)
                             {
                                 originalBlockData[id] = resource.GetDeclinatedAdjective(id)[i];
                             }
@@ -261,9 +262,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 foreach (uint key in originalData.Keys)
                 {
                     string originalText = originalData[key];
-                    
+
                     bool textExistsInRecreation = recreatedData.TryGetValue(key, out string recreationText);
-                    if(!textExistsInRecreation)
+                    if (!textExistsInRecreation)
                     {
                         missingIds++;
                     }
@@ -285,6 +286,48 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 else
                 {
                     App.Logger.Log("...<{0}> texts missmatch and {3} missing out of all <{1}> {2} texts", missMatching, originalData.Count, blockNameForErrorMessages, missingIds);
+                }
+
+            }
+        }
+
+        private static void CompareMappingDictionaries(IDictionary<uint, uint> originalData, IDictionary<uint, uint> recreatedData, string blockNameForErrorMessages)
+        {
+            if (originalData.Count != recreatedData.Count)
+            {
+                App.Logger.Log("...Incorrect Number of {2} Entries! Expected {0}, got {1}", originalData.Count, recreatedData.Count, blockNameForErrorMessages);
+            }
+            else
+            {
+                int missMatching = 0;
+                int missingIds = 0;
+                foreach (uint key in originalData.Keys)
+                {
+                    uint originalValue = originalData[key];
+
+                    bool textExistsInRecreation = recreatedData.TryGetValue(key, out uint recreationValue);
+                    if (!textExistsInRecreation)
+                    {
+                        missingIds++;
+                    }
+
+                    if (originalValue != recreationValue)
+                    {
+                        missMatching++;
+                    }
+                }
+
+                if (missMatching == 0)
+                {
+                    App.Logger.Log("...All of the {0} entries match", blockNameForErrorMessages);
+                }
+                else if (missMatching == originalData.Count)
+                {
+                    App.Logger.Log("...None of the {0} entries match! {1} Text(s) were missing!", blockNameForErrorMessages, missingIds);
+                }
+                else
+                {
+                    App.Logger.Log("...<{0}> entries missmatch and {3} are missing out of all <{1}> {2} entries", missMatching, originalData.Count, blockNameForErrorMessages, missingIds);
                 }
 
             }

@@ -20,9 +20,7 @@ Header
     uint stringsCount				(pos 36)
     uint stringsOffset				(pos 40)
 
-    // Until the nodeOffset is reached
-    // If they exist, then at least 2 times.
-    // - a last entry might contain zeros or the same as the last position and is not used
+    // Until the nodeOffset is reached, at least 2 times. If No crafting adjectives and support is used than the count is 0 and the offset is the same as dataoffset.
     N times 8ByteBlockCountAndOffset
     {
         uint counts
@@ -59,7 +57,8 @@ StringData
 // - The second block maps these variants to the block offset to search the ID in. This block offset is the number of count + offset tubles, including those for nodes and strings.
 //   That means that the lowest number is 4, counting update from there. For english, this means this contains a single tuple: 0 - 4, while for french it goes up to 0x102020 - xB
 //
-// - Everything past the second of these blocks contains the bit offsets of the text pieces used for crafted item names in DA:I. The first of this adjective id including blocks has the numbering 4 in the previous block.
+// - Everything past the second of these blocks contains the bit offsets of the text pieces used for crafted item names in DA:I.
+//   The first of this adjective id including blocks has the numbering 4 in the previous block. Adjective Ids are an int, 8 bytes long, apart from the highest hex position they are the same accross languages. No idea what those first 4 bits mean.
 N times 8ByteBlockData
 {
     // Position = 8ByteBlockCountAndOffset[index].offset

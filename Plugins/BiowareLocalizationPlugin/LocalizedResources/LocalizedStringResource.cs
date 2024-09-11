@@ -3,12 +3,11 @@ using FrostySdk;
 using FrostySdk.IO;
 using FrostySdk.Managers;
 using FrostySdk.Resources;
+using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using System.Linq;
-using System;
-using System.Numerics;
+using System.Text;
 
 namespace BiowareLocalizationPlugin.LocalizedResources
 {
@@ -29,7 +28,8 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <summary>
         /// Toggle to enable / disable further debug log messages -Remember to turn this off before release!
         /// </summary>
-        private static readonly bool m_printVerificationTexts = false;
+        // TODO set to false
+        private static readonly bool m_printVerificationTexts = true;
 
         /// <summary>
         /// How to handle incorrect metadata offsets in the resource header.
@@ -89,9 +89,15 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         private HuffmanNode m_encodingRootNode;
 
         /// <summary>
-        /// Byte array of currently unknown data packed between the header list of string positions, and the actual text entries.
+        /// Contains the ids of item names as key, ( shifted to 0xA0000000, i.e., with A as the highest 4 bits ), and the variation to use as value.
         /// </summary>
-        private List<byte[]> m_unknownData;
+        internal IDictionary<uint, uint> ItemNamesToCraftingAdjectiveVariation { get; private set; }
+
+        /// <summary>
+        /// Contains the variation from the dictionary above ( e.g., 0, 0x101, 0x302, ... ) as key and the declination to use of adjectives as values.
+        /// These values point to the list, and start with 4, probably because this is written in the 3rd block after the encoding, so the next block with adjectives would be the 4th.
+        /// </summary>
+        internal IDictionary<uint, uint> AdjectiveVariationToDeclinationTuple { get; private set; }
 
         /// <summary>
         /// Ids and texts of Declinated adjectives for creafted items in DA:I
@@ -108,7 +114,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
         public override void Read(NativeReader reader, AssetManager am, ResAssetEntry entry, ModifiedResource modifiedData)
         {
-
             base.Read(reader, am, entry, modifiedData);
 
             Name = new StringBuilder(entry.Filename)
@@ -116,7 +121,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 .Append(entry.Name)
                 .ToString();
 
-            if(m_printVerificationTexts)
+            if (m_printVerificationTexts)
             {
                 string resMetaStrig = resMeta.Select(b => b.ToString("X")).Aggregate((a, b) => a + b);
                 App.Logger.Log(Name + " ResMeta is: " + resMetaStrig);
@@ -179,20 +184,27 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             uint lastBlockSize = 0;
             List<DataCountAndOffsets> recalculatedAdditionalOffsets = new List<DataCountAndOffsets>();
 
-            // one for the money: No idea what this is
-            foreach (DataCountAndOffsets unknownDef in m_headerData.FirstUnknownDataDefSegments)
+            // one for the money: This points to what seems to be setup data for generating names of crafted items in DAI
+            // They are only used for crafting in DAI, but are always available - even in MEA
+            // add item mappint
+            uint craftingItemCount = (uint) ItemNamesToCraftingAdjectiveVariation.Count;
+            recalculatedAdditionalOffsets.Add(new DataCountAndOffsets()
             {
-                uint byteBlockCount8 = unknownDef.Count;
-                blockOffset += lastBlockSize;
-                recalculatedAdditionalOffsets.Add(new DataCountAndOffsets()
-                {
-                    Count = byteBlockCount8,
-                    Offset = blockOffset
+                Count = craftingItemCount,
+                Offset = blockOffset
 
-                });
+            });
+            blockOffset += craftingItemCount * 8;
 
-                lastBlockSize = byteBlockCount8 * 8;
-            }
+            // add declination mapping
+            uint declinationCount = (uint)AdjectiveVariationToDeclinationTuple.Count;
+            recalculatedAdditionalOffsets.Add(new DataCountAndOffsets()
+            {
+                Count = declinationCount,
+                Offset = blockOffset
+
+            });
+            blockOffset += declinationCount * 8;
 
             // two for the show: These are the ids and positions of the declinated adjectives used in DA:I crafting
             foreach (var declinatedAdjectivesBlock in encodedTextsGrouping.DeclinatedAdjectivesIdsAndPositions)
@@ -238,7 +250,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 }
 
                 if (m_printVerificationTexts)
-                { App.Logger.Log(".. Writer Position before <{0}> nodes is <{1}>, expected <{2}> ", nodeList.Count, writer.Position, nodeOffset); }
+                {
+                    App.Logger.Log(".. Writer Position before <{0}> nodes is <{1}>, expected <{2}> ", nodeList.Count, writer.Position, nodeOffset);
+                }
 
                 // Write huffman nodes
                 foreach (HuffmanNode node in nodeList)
@@ -248,7 +262,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
                 long actualStringsOffset = writer.Position;
                 if (m_printVerificationTexts)
-                { App.Logger.Log(".. Writer Position before textlocations is <{0}>, expected <{1}> ", writer.Position, newStringsOffset); }
+                {
+                    App.Logger.Log(".. Writer Position before textlocations is <{0}>, expected <{1}> ", writer.Position, newStringsOffset); 
+                }
 
                 //Write string id positions
                 foreach (KeyValuePair<uint, EncodedTextPosition> entry in encodedTextsGrouping.PrimaryTextIdsAndPositions)
@@ -263,10 +279,28 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                         encodedTextsGrouping.PrimaryTextIdsAndPositions.Count, writer.Position, recalculatedAdditionalOffsets[0].Offset, writer.Position - actualStringsOffset);
                 }
 
-                //Write unknownDataSegments
-                foreach (byte[] someData in m_unknownData)
+                foreach(var entry in ItemNamesToCraftingAdjectiveVariation)
                 {
-                    writer.Write(someData);
+                    writer.Write(entry.Key);
+                    writer.Write(entry.Value);
+                }
+
+                if (m_printVerificationTexts)
+                {
+                    App.Logger.Log(".. Writer Position after <{0}> ItemNamesToCraftingAdjectiveVariation is <{1}>, expected <{2}>. Length of last part was <{3}>",
+                        ItemNamesToCraftingAdjectiveVariation.Count, writer.Position, recalculatedAdditionalOffsets[1].Offset, writer.Position - actualStringsOffset);
+                }
+
+                foreach (var entry in AdjectiveVariationToDeclinationTuple)
+                {
+                    writer.Write(entry.Key);
+                    writer.Write(entry.Value);
+                }
+
+                if (m_printVerificationTexts && recalculatedAdditionalOffsets.Count>2)
+                {
+                    App.Logger.Log(".. Writer Position after <{0}> AdjectiveVariationToDeclinationTuple is <{1}>, expected <{2}>. Length of last part was <{3}>",
+                        AdjectiveVariationToDeclinationTuple.Count, writer.Position, recalculatedAdditionalOffsets[2].Offset, writer.Position - actualStringsOffset);
                 }
 
                 // write the ids and positions of the declinated adjectives.
@@ -280,7 +314,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 }
 
                 if (m_printVerificationTexts)
-                { App.Logger.Log(".. Writer Position before texts is <{0}>, expected <{1}>", writer.Position, newDataOffset); }
+                {
+                    App.Logger.Log(".. Writer Position before texts is <{0}>, expected <{1}>", writer.Position, newDataOffset); 
+                }
 
                 // Write encoded texts
                 byte[] bitTexts = ResourceUtils.GetTextRepresentationToWrite(encodedTextsGrouping.AllEncodedTextPositions);
@@ -664,6 +700,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 ResourceEventHandlers?.Invoke(this, new EventArgs());
             }
 
+            // TODO remove this later!
+            ResourceTestUtils.ReadWriteTest(this);
+
             // revert the metadata just in case
             ReplaceMetaData(m_headerData.DataOffset);
         }
@@ -681,7 +720,8 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             // initialize these, so there is no accidental crash in anthem
             m_headerData = new ResourceHeader();
-            m_unknownData = new List<byte[]>();
+            ItemNamesToCraftingAdjectiveVariation = new Dictionary<uint, uint>();
+            AdjectiveVariationToDeclinationTuple = new Dictionary<uint, uint>();
             DragonAgeDeclinatedCraftingNames = new DragonAgeDeclinatedAdjectiveTuples(0);
 
             long numStrings = reader.ReadLong();
@@ -744,14 +784,10 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             PositionSanityCheck(reader, m_headerData.StringsOffset, "HuffmanCoding");
             ReadStringData(reader, m_headerData.StringsCount);
 
-            // position after string data is the start of header.unknownDataDef[0].offset
-            PositionSanityCheck(reader, m_headerData.FirstUnknownDataDefSegments[0].Offset, "StringData");
-            m_unknownData = new List<byte[]>();
-
-            foreach (DataCountAndOffsets dataCountAndOffset in m_headerData.FirstUnknownDataDefSegments)
-            {
-                m_unknownData.Add(ResourceUtils.ReadUnkownSegment(reader, dataCountAndOffset));
-            }
+            PositionSanityCheck(reader, m_headerData.ItemNameSetupCountsAndOffsets.Offset, "StringData");
+            ItemNamesToCraftingAdjectiveVariation = ResourceUtils.ReadDictionary(reader, m_headerData.ItemNameSetupCountsAndOffsets);
+            PositionSanityCheck(reader, m_headerData.AdjectiveDeclinationsCountsAndOffsets.Offset, "ItemNamesToCraftingAdjectiveVariation");
+            AdjectiveVariationToDeclinationTuple = ResourceUtils.ReadDictionary(reader, m_headerData.AdjectiveDeclinationsCountsAndOffsets);
 
             DragonAgeDeclinatedCraftingNames = new DragonAgeDeclinatedAdjectiveTuples(m_headerData.MaxDeclinations);
 
@@ -1057,26 +1093,13 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         }
 
         /// <summary>
-        /// Returns the encoding originally used, if all characters are included. Otherwise recalculates a new encoding. 
+        /// Recalculates a new encoding.
+        /// I stole an idea from lex that makes this better than the original version, and so more efficient than the encoding used by BW if any text changed at all.
         /// </summary>
         /// <param name="allSortedTexts">The enumeration of all texts and their id</param>
         /// <returns>The root huffman node for the encoding</returns>
         private HuffmanNode GetEncodingRootNode(List<SortedDictionary<uint, string>> allSortedTexts)
         {
-
-            if (m_modifiedResource == null)
-            {
-                return m_encodingRootNode;
-            }
-
-            // compare added texts chars to allowed chars, if new ones, recalculate encoding
-            IEnumerable<string> alteredTexts = m_modifiedResource.AlteredTexts.Values;
-            bool includesOnlySupported = ResourceUtils.IncludesOnlySupportedCharacters(alteredTexts, m_supportedCharacters);
-
-            if (includesOnlySupported)
-            {
-                return m_encodingRootNode;
-            }
 
             if (m_printVerificationTexts)
             {

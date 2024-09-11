@@ -1,5 +1,4 @@
 ﻿using Frosty.Core;
-using FrostySdk.Managers;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -19,31 +18,35 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         public const uint Magic = 0xd78b40eb;
 
         // no idea what this does, doesn't seem to affect anything
-        public uint Unknown1;
+        public uint Unknown1 { get; set; }
 
         // Note: If nodeCount changes due to added Chars, then dataOffset changes!
         // Additional Note: This offset is also part of the metadata, the value in this header is not guaranteed to be correct!
-        public uint DataOffset;
+        public uint DataOffset { get; set; }
 
         // also no idea, can set these to zero and nothing bad happens
-        public uint Unknown2;
-        public uint Unknown3;
-        public uint Unknown4;
+        public uint Unknown2 { get; set; }
+        public uint Unknown3 { get; set; }
+        public uint Unknown4 { get; set; }
 
         // // nodeCount is an even integer! The rootNode as would-be last node in the node list is *not* actually part of the list
-        public uint NodeCount;
-        public uint NodeOffset;
-        public uint StringsCount;
-        public uint StringsOffset;
+        public uint NodeCount { get; set; }
+        public uint NodeOffset { get; set; }
+        public uint StringsCount { get; set; }
+        public uint StringsOffset { get; set; }
 
-        // Note: If one of nodeCount or stringsCount changes, then the offsets herein also change! This list has a length of 2
-        public List<DataCountAndOffsets> FirstUnknownDataDefSegments = new List<DataCountAndOffsets>();
+        // If available, this points to the list of item names and the variations to use for them. If not, then the count is zero and the offset is the dataoffset.
+        public DataCountAndOffsets ItemNameSetupCountsAndOffsets { get; set; }
+
+        // If available, this points to the map of adjective variations to their relative list position. If not, then the count is zero and the offset is the dataoffset.
+        public DataCountAndOffsets AdjectiveDeclinationsCountsAndOffsets { get; set; }
 
         // These are only available for very few resources, they contain the count and offset for the strings used when crafting items in DA:I
         // This starts at the 3rd of the DataCountAndOffsets, potentially this contains only zeros.
         public List<DataCountAndOffsets> DragonAgeDeclinatedCraftingNamePartsCountAndOffset { get; private set; } = new List<DataCountAndOffsets>();
 
-        // this is *not* part of the actual header?
+        // This is *not* part of the actual header?
+        // I could set this based on the AdjectiveDeclinationsCountsAndOffsets, but that sometimes includes variations that do not exist at all!
         public int MaxDeclinations { get; private set; } = 0;
 
         public void AddDragonAgeDeclinatedCraftingNamePart(DataCountAndOffsets coundAndOffset)
@@ -61,21 +64,21 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             StringBuilder sb = new StringBuilder();
             sb.Append("\n") // newline after resource name
-                .Append($"unknown1: <{Unknown1} | 0x{uk1AsHex}>\n")
-                .Append($"unknown2: <{Unknown2} | 0x{uk2AsHex}>\n")
-                .Append($"unknown3: <{Unknown3} | 0x{uk3AsHex}>\n")
-                .Append($"unknown4: <{Unknown4} | 0x{uk4AsHex}>\n")
-                .Append($"NodeCount: <{NodeCount}> starting at <{NodeOffset}>\n")
-                .Append($"StringCount: <{StringsCount}> starting at <{StringsOffset}>\n");
+                .AppendLine($"DataOffset is: <{DataOffset}>")
+                .AppendLine($"unknown1: <{Unknown1} | 0x{uk1AsHex}>")
+                .AppendLine($"unknown2: <{Unknown2} | 0x{uk2AsHex}>")
+                .AppendLine($"unknown3: <{Unknown3} | 0x{uk3AsHex}>")
+                .AppendLine($"unknown4: <{Unknown4} | 0x{uk4AsHex}>")
+                .AppendLine($"NodeCount: <{NodeCount}> starting at <{NodeOffset}>")
+                .AppendLine($"StringCount: <{StringsCount}> starting at <{StringsOffset}>");
 
-            foreach (var ukd in FirstUnknownDataDefSegments)
+            if(ItemNameSetupCountsAndOffsets != null && ItemNameSetupCountsAndOffsets.Count > 0)
             {
-                uint byte8Count = ukd.Count;
-                if (byte8Count > 0)
-                {
-                    uint totalsize = byte8Count * 8;
-                    sb.Append($"  Additional data of {byte8Count} 8Bytes, or {totalsize} bytes starts at <{ukd.Offset}>\n");
-                }
+                sb.AppendLine($"  Additional Item names to variation mapping for {ItemNameSetupCountsAndOffsets.Count} entries starts at {ItemNameSetupCountsAndOffsets.Offset}");
+            }
+            if (AdjectiveDeclinationsCountsAndOffsets != null && AdjectiveDeclinationsCountsAndOffsets.Count > 0)
+            {
+                sb.AppendLine($"  Additional mapping for {AdjectiveDeclinationsCountsAndOffsets.Count} declinations starts at {AdjectiveDeclinationsCountsAndOffsets.Offset}");
             }
 
             foreach (var craftingNamePartCounts in DragonAgeDeclinatedCraftingNamePartsCountAndOffset)
@@ -84,11 +87,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 if (byte8Count > 0)
                 {
                     uint totalsize = byte8Count * 8;
-                    sb.Append($"  Declinated crafting name parts of {byte8Count} 8Bytes, or {totalsize} bytes starts at <{craftingNamePartCounts.Offset}>\n");
+                    sb.AppendLine($"  Declinated crafting name parts of {byte8Count} entries, or {totalsize} bytes starts at <{craftingNamePartCounts.Offset}>");
                 }
             }
-
-            sb.Append($"DataOffset is: <{DataOffset}>");
 
             return sb.ToString();
         }
@@ -138,14 +139,23 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     printLetter = "endDelimeter";
                     break;
                 case 4294967285:
+                    // 0xFFFF FFF5 -> char U+000A, EOL
                     printLetter = "newLine";
+                    break;
+                case 4294967172:
+                    // 0xFFFF FF84 -> char U+007B, {
+                    printLetter = "left curly bracket";
+                    break;
+                case 4294967170:
+                    // 0xFFFF FF82 -> char U+007D, }
+                    printLetter = "right curly bracket";
                     break;
                 default:
                     printLetter = Letter.ToString();
                     break;
             }
 
-            return string.Format("[Value = <{0}> | Letter = <{1}>]", Value.ToString(), printLetter);
+            return string.Format("[Value = <{0} | 0x{1}> | LetterValue = <0x{2}> Letter = <{3}>]", Value.ToString(), Value.ToString("X"), ((uint) Letter).ToString("X"), printLetter);
         }
 
         /// <summary>
@@ -288,6 +298,8 @@ namespace BiowareLocalizationPlugin.LocalizedResources
     {
         public int Occurences { get; set; }
 
+        private List<bool> NodeEncoding = null;
+
         public new HuffManConstructionNode Left { get; private set; }
 
         public new HuffManConstructionNode Right { get; private set; }
@@ -328,6 +340,23 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             return Math.Max(ld, rd);
         }
+
+        /// <summary>
+        /// Returns the encoding for this node, storing it for later requests.
+        /// Kind of stole the idea from the LEX implementation:
+        /// https://github.com/ME3Tweaks/LegendaryExplorer/blob/Beta/LegendaryExplorer/LegendaryExplorerCore/TLK/ME2ME3/HuffmanCompression.cs
+        /// </summary>
+        /// <returns></returns>
+        public List<bool> GetNodeEncoding()
+        {
+            if (NodeEncoding == null)
+            {
+                NodeEncoding = new List<bool>();
+                NodeEncoding.AddRange(ResourceUtils.GetCharEncoding(Parent));
+                NodeEncoding.Add(ResourceUtils.GetBoolValueFromParent(this));
+            }
+            return NodeEncoding;
+        }
     }
 
     public class LocalizedString
@@ -351,7 +380,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             {
                 return Value;
             }
-            return this.GetType().Name + "@" + DefaultPosition;
+            return this.GetType().Name + " @ " + DefaultPosition;
         }
     }
 
@@ -372,7 +401,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
         public override string ToString()
         {
-            return Id.ToString("X8");
+            return Id.ToString("X8") + " @ " + DefaultPosition;
         }
     }
 

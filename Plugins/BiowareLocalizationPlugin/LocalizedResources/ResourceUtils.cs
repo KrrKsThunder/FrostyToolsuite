@@ -27,7 +27,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <returns></returns>
         public static ResourceHeader ReadHeader(NativeReader reader)
         {
-                 
+
             uint magic = reader.ReadUInt();
             if (magic != ResourceHeader.Magic)
                 throw new InvalidDataException();
@@ -44,14 +44,11 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 NodeOffset = reader.ReadUInt(),
 
                 StringsCount = reader.ReadUInt(),
-                StringsOffset = reader.ReadUInt()
-            };
+                StringsOffset = reader.ReadUInt(),
 
-            // this block's first offset is the position after the stringId and positions are parsed, subsequent offsets (and the dataoffset) are 8 bytes * count further than the last
-            for(int i = 0; i<2 && reader.Position < header.NodeOffset; i++)
-            {
-                header.FirstUnknownDataDefSegments.Add(ReadCountAndOffset(reader));
-            }
+                ItemNameSetupCountsAndOffsets = ReadCountAndOffset(reader),
+                AdjectiveDeclinationsCountsAndOffsets = ReadCountAndOffset(reader),
+            };
 
             // The remainder until the node offset is reached is filled by ids and positions of declinated articles for dragon age crafting.
             while (reader.Position < header.NodeOffset)
@@ -73,10 +70,25 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             return somePointer;
         }
 
-        public static byte[] ReadUnkownSegment(NativeReader reader, DataCountAndOffsets countAndOffset)
+        /// <summary>
+        /// Reads dictionary entries from the given count and offset.
+        /// </summary>
+        /// <param name="reader">the reader</param>
+        /// <param name="countAndOffset">the data holding count and offset</param>
+        /// <returns></returns>
+        public static IDictionary<uint, uint> ReadDictionary(NativeReader reader, DataCountAndOffsets countAndOffset)
         {
-            // these seem to be tuples or a map of twice the same (integer) value
-            return reader.ReadBytes(((int)countAndOffset.Count) * 8);
+            IDictionary<uint, uint> dictionary = new Dictionary<uint, uint>();
+
+            for(int i = 0; i<countAndOffset.Count;i++)
+            {
+                uint key = reader.ReadUInt();
+                uint value = reader.ReadUInt();
+
+                dictionary[key] = value;
+            }
+
+            return dictionary;
         }
 
         /// <summary>
@@ -167,7 +179,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             List<HuffmanNode> nodesSansRoot = new List<HuffmanNode>();
 
-            if(rootNode == null)
+            if (rootNode == null)
             {
                 App.Logger.Log("Given Root Node was null!");
                 return nodesSansRoot;
@@ -218,18 +230,18 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             if (rootNode == null)
             {
-                App.Logger.Log("Given root node was null!");
+                App.Logger.LogError("Given root node was null!");
                 return nodesSansRoot;
             }
 
             // get all branches
-            List<HuffmanNode> branches = GetAllBranchNodes( new List<HuffmanNode>() { rootNode });
+            List<HuffmanNode> branches = GetAllBranchNodes(new List<HuffmanNode>() { rootNode });
 
             // sort branches by their value, so that the write out can happen in the correct order
             branches.Sort();
 
             // add all the children in the order of their parent's value
-            foreach(HuffmanNode branch in branches)
+            foreach (HuffmanNode branch in branches)
             {
                 nodesSansRoot.Add(branch.Left);
                 nodesSansRoot.Add(branch.Right);
@@ -241,14 +253,14 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         private static List<HuffmanNode> GetAllBranchNodes(List<HuffmanNode> currentNodes)
         {
             List<HuffmanNode> branchNodes = new List<HuffmanNode>();
-            
-            foreach(HuffmanNode currentNode in currentNodes)
+
+            foreach (HuffmanNode currentNode in currentNodes)
             {
-                if(currentNode.Left != null && currentNode.Right != null)
+                if (currentNode.Left != null && currentNode.Right != null)
                 {
                     branchNodes.Add(currentNode);
                     branchNodes.AddRange(
-                        GetAllBranchNodes( new List<HuffmanNode>() { currentNode.Left, currentNode.Right }));
+                        GetAllBranchNodes(new List<HuffmanNode>() { currentNode.Left, currentNode.Right }));
                 }
             }
 
@@ -283,7 +295,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// </summary>
         /// <param name="node">The node for which to find the encoding.</param>
         /// <returns>the encoding as list of bools.</returns>
-        private static List<bool> GetCharEncoding(HuffmanNode node)
+        public static List<bool> GetCharEncoding(HuffmanNode node)
         {
             HuffmanNode parent = node.Parent;
             if (parent == null)
@@ -291,25 +303,46 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 return new List<bool>();
             }
 
+            if (node.GetType() == typeof(HuffManConstructionNode))
+            {
+                return ((HuffManConstructionNode)node).GetNodeEncoding();
+            }
+
             List<bool> encoding = GetCharEncoding(parent);
 
-            if (node == parent.Left)
+            encoding.Add(GetBoolValueFromParent(node));
+
+            return encoding;
+        }
+
+        /// <summary>
+        /// Returns the bool value for the huffman encoding based on the parents node. Requires that the parent exists!
+        /// </summary>
+        /// <param name="node"></param>
+        /// <returns></returns>
+        /// <exception cref="InvalidOperationException"></exception>
+        public static bool GetBoolValueFromParent(HuffmanNode node)
+        {
+            // if we really messed up, then all of these could be null
+            HuffmanNode parent = node.Parent;
+            HuffmanNode left = parent?.Left;
+            HuffmanNode right = parent?.Right;
+
+            if (node == left)
             {
-                encoding.Add(false);
+                return false;
             }
-            else if (node == parent.Right)
+            else if (node == right)
             {
-                encoding.Add(true);
+                return true;
             }
             else
             {
                 throw new InvalidOperationException(
                     string.Format(
-                        "Trying to find encoding for node <{0}> failed to to incorrect setup tree!",
+                        "Trying to find encoding for node <{0}> failed due to incorrect tree setup!",
                         node.ToString()));
             }
-
-            return encoding;
         }
 
         /// <summary>
@@ -385,7 +418,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         public static bool IncludesOnlySupportedCharacters(IEnumerable<string> stringsToCheck, List<char> allSupportedCharacters)
         {
             HashSet<char> allCharsToCheck = new HashSet<char>();
-            foreach(string stringToCheck in stringsToCheck)
+            foreach (string stringToCheck in stringsToCheck)
             {
                 allCharsToCheck.UnionWith(stringToCheck.AsEnumerable());
             }
@@ -393,16 +426,16 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             // the list of supported characters must be sorted in ascending order for this to work
             // the getLeaf chars method herein does this now per default
 
-            foreach(char toCheck in allCharsToCheck)
+            foreach (char toCheck in allCharsToCheck)
             {
-                foreach(char supported in allSupportedCharacters)
+                foreach (char supported in allSupportedCharacters)
                 {
-                    if(supported == toCheck)
+                    if (supported == toCheck)
                     {
                         // found it, no need to search further
                         break;
                     }
-                    else if(supported > toCheck)
+                    else if (supported > toCheck)
                     {
                         // already past the point where it should have been found
                         return false;
@@ -426,11 +459,11 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             // get set of chars and their number of occurences...
             Dictionary<char, int> charNumbers = new Dictionary<char, int>();
-            foreach(string text in texts)
+            foreach (string text in texts)
             {
-                foreach(char c in text)
+                foreach (char c in text)
                 {
-                    if( charNumbers.TryGetValue(c, out int occurences))
+                    if (charNumbers.TryGetValue(c, out int occurences))
                     {
                         charNumbers[c] = ++occurences;
                     }
@@ -446,13 +479,14 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             charNumbers[delimiter] = texts.Count();
 
             List<HuffManConstructionNode> nodeList = new List<HuffManConstructionNode>();
-            foreach(var entry in charNumbers)
+            foreach (var entry in charNumbers)
             {
-                nodeList.Add( new HuffManConstructionNode()
-                    {
-                        Value = ~(uint)entry.Key,
-                        Occurences = entry.Value
-                    });
+                char c = entry.Key;
+                nodeList.Add(new HuffManConstructionNode()
+                {
+                    Value = ~(uint)c,
+                    Occurences = entry.Value
+                });
             }
 
             uint nodeValue = 0;
@@ -466,7 +500,8 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
                 nodeList.RemoveRange(0, 2);
 
-                HuffManConstructionNode composite = new HuffManConstructionNode() {
+                HuffManConstructionNode composite = new HuffManConstructionNode()
+                {
                     Value = nodeValue++,
                 };
                 composite.SetLeftNode(left);
@@ -518,7 +553,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             SortedDictionary<uint, EncodedTextPosition> primaryTextsSortedById = MapEncodedTextPositionById(encodedPrimaryTexts, uniqueTextPositions);
 
             List<SortedDictionary<uint, EncodedTextPosition>> encodedDeclinatedArticleTextsById = new List<SortedDictionary<uint, EncodedTextPosition>>();
-            foreach(var idMappedText in encodedDeclinatedArticleTexts)
+            foreach (var idMappedText in encodedDeclinatedArticleTexts)
             {
                 SortedDictionary<uint, EncodedTextPosition> encodedTextsById = MapEncodedTextPositionById(idMappedText, uniqueTextPositions);
                 encodedDeclinatedArticleTextsById.Add(encodedTextsById);
@@ -567,9 +602,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <param name="encodedTexts"></param>
         /// <param name="uniqueTextPositions"></param>
         /// <returns></returns>
-        private static SortedDictionary<uint, EncodedTextPosition> MapEncodedTextPositionById (
+        private static SortedDictionary<uint, EncodedTextPosition> MapEncodedTextPositionById(
             IDictionary<uint, EncodedText> encodedTexts,
-            IDictionary<EncodedText, EncodedTextPosition> uniqueTextPositions )
+            IDictionary<EncodedText, EncodedTextPosition> uniqueTextPositions)
         {
             SortedDictionary<uint, EncodedTextPosition> textsSortedById = new SortedDictionary<uint, EncodedTextPosition>();
             foreach (KeyValuePair<uint, EncodedText> entry in encodedTexts)
@@ -586,7 +621,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// </summary>
         /// <param name="textEntriesToWrite"></param>
         /// <returns></returns>
-        public static byte[] ConvertTextEntriesToBytes(Dictionary<uint,string> textEntriesToWrite)
+        public static byte[] ConvertTextEntriesToBytes(Dictionary<uint, string> textEntriesToWrite)
         {
 
             using (MemoryStream outputStream = new MemoryStream())
@@ -626,7 +661,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                         writer.Write(textEntry.Key);
                         writer.Write(declinationsList.Count);
 
-                        foreach(string declination in declinationsList)
+                        foreach (string declination in declinationsList)
                         {
                             writer.Write(declination);
                         }
@@ -644,7 +679,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <returns>The parsed text</returns>
         private static string ConvertBytesToString(byte[] parseable)
         {
-            using(BinaryReader reader = new BinaryReader( new MemoryStream(parseable), Encoding.UTF8 ))
+            using (BinaryReader reader = new BinaryReader(new MemoryStream(parseable), Encoding.UTF8))
             {
                 return reader.ReadString();
             }
@@ -662,7 +697,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             int stringLength = reader.Read7BitEncodedInt();
 
-            int offset = (int)( reader.Position - position );
+            int offset = (int)(reader.Position - position);
 
             reader.Position = position;
             byte[] modTextBytes = reader.ReadBytes(stringLength + offset);

@@ -28,8 +28,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <summary>
         /// Toggle to enable / disable further debug log messages -Remember to turn this off before release!
         /// </summary>
-        // TODO set to false
-        private static readonly bool m_printVerificationTexts = true;
+        private static readonly bool m_printVerificationTexts = false;
 
         /// <summary>
         /// How to handle incorrect metadata offsets in the resource header.
@@ -700,9 +699,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 ResourceEventHandlers?.Invoke(this, new EventArgs());
             }
 
-            // TODO remove this later!
-            ResourceTestUtils.ReadWriteTest(this);
-
             // revert the metadata just in case
             ReplaceMetaData(m_headerData.DataOffset);
         }
@@ -946,7 +942,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     {
                         bitReader.SetPosition(bitOffset);
                         stringDefinition.Value = ReadSingleText(bitReader, rootNode);
-
                     }
                     else
                     {

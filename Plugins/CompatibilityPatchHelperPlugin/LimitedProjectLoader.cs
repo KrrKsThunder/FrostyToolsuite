@@ -1,8 +1,4 @@
 ﻿using Frosty.Core;
-using Frosty.Core.Controls;
-using Frosty.Core.Handlers;
-using Frosty.Core.Mod;
-using Frosty.Hash;
 using FrostySdk;
 using FrostySdk.IO;
 using FrostySdk.Managers;
@@ -10,46 +6,63 @@ using FrostySdk.Resources;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace CompatibilityPatchHelperPlugin
 {
+
+    public struct AssetModification
+    {
+        public string Name;
+        public Guid AssetId;
+        public EbxAssetEntry AssetEntry;
+        public IList<int> AddedBundles;
+        public EbxAsset Ebx;
+    }
+
     internal class LimitedProjectLoader
     {
-        private struct AssetModification
-        {
-            public string Name;
-            public Guid AssetId;
-            public EbxAssetEntry AssetEntry;
-            public IList<int> AddedBundles;
-            public EbxAsset Ebx;
-        }
 
-        // copy from the project class, this has to be completely redone for v2!
+        // copy from the project class, this has to be completely redone for frosty v2!
         private const uint FormatVersion = 14;
         private const ulong Magic = 0x00005954534F5246;
 
-        public void LoadFromProject(string projectName)
+        /// <summary>
+        /// Tries to load all the ebx modifications from the given project file and return them as dictionary of AssetModifications
+        /// </summary>
+        /// <param name="projectName">The name of the project file to load</param>
+        /// <returns>Dictionary with asset names as keys and the AssetModification entry with all the data, including the loaded ebx as value.</returns>
+        public static IDictionary<string, AssetModification> LoadFromProject(string projectName)
+        {
+            return LoadFromProject(projectName, false, new List<string>());
+        }
+
+        /// <summary>
+        /// Tries to load the ebx modifications from the given project file if they are included in the given names to keep and return them as dictionary of AssetModifications
+        /// </summary>
+        /// <param name="projectName">The name of the project file to load</param>
+        /// <param name="keepOnlyKnownEntries">If true, only those ebx modifications with names found in the given list are kept.</param>
+        /// <param name="ebxNamesToKeep">the list of ebx names to keep. All modifications to ebx entries with other names will not be recorded or returned.</param>
+        /// <returns>Dictionary with asset names as keys and the AssetModification entry with all the data, including the loaded ebx as value.</returns>
+        public static IDictionary<string, AssetModification> LoadFromProject(string projectName, bool keepOnlyKnownEntries, ICollection<String> ebxNamesToKeep)
         {
 
+            IDictionary<string, AssetModification> ebxModifications = null;
             using (NativeReader reader = new NativeReader(new FileStream(projectName, FileMode.Open, FileAccess.Read)))
             {
                 ulong magic = reader.ReadULong();
                 if (magic == Magic)
                 {
-                    // TODO setup and memory still missing!
-                    InternalLoad(reader);
+                    ebxModifications = InternalLoad(reader, keepOnlyKnownEntries, ebxNamesToKeep);
                 }
             }
+
+            return ebxModifications;
         }
 
-        private bool InternalLoad(NativeReader reader)
+        private static IDictionary<string, AssetModification> InternalLoad(NativeReader reader, bool keepOnlyKnownEntries, ICollection<String> ebxNamesToKeep)
         {
             // maybe i should have used Y-Wings version from their Merge Plugin as base instead of the project class...
 
-            // TODO move dictionary to outside or something
             var ebxModifications = new Dictionary<string, AssetModification>();
 
             uint version = reader.ReadUInt();
@@ -57,14 +70,14 @@ namespace CompatibilityPatchHelperPlugin
             if (version != FormatVersion)
             {
                 App.Logger.LogError("Abort, the given project is of version <{0}> wich cant be read by this plugin! Only supports version 14!", version);
-                return false;
+                return ebxModifications;
             }
 
             string gameProfile = reader.ReadNullTerminatedString();
             if (gameProfile.ToLower() != ProfilesLibrary.ProfileName.ToLower())
             {
                 App.Logger.LogError("Selected project was for a different Game!");
-                return false;
+                return ebxModifications;
             }
 
             // do not care about mod setup
@@ -99,6 +112,7 @@ namespace CompatibilityPatchHelperPlugin
 
             // superbundles
             int numItems = reader.ReadInt();
+            // not used here
 
             // bundles
             numItems = reader.ReadInt();
@@ -117,20 +131,26 @@ namespace CompatibilityPatchHelperPlugin
             for (int i = 0; i < numItems; i++)
             {
                 string name = reader.ReadNullTerminatedString();
-                EbxAssetEntry entry = new EbxAssetEntry
-                {
-                    Name = name,
-                    Guid = reader.ReadGuid()
-                };
+                Guid guid = reader.ReadGuid();
 
-                AssetModification modification = new AssetModification()
+                if (!keepOnlyKnownEntries || (keepOnlyKnownEntries && ebxNamesToKeep.Contains(name)))
                 {
-                    Name = name,
-                    AssetId = entry.Guid,
-                    AssetEntry = entry
-                };
 
-                ebxModifications.Add(name, modification);
+                    EbxAssetEntry entry = new EbxAssetEntry
+                    {
+                        Name = name,
+                        Guid = guid
+                    };
+
+                    AssetModification modification = new AssetModification()
+                    {
+                        Name = name,
+                        AssetId = guid,
+                        AssetEntry = entry
+                    };
+
+                    ebxModifications.Add(name, modification);
+                }
             }
 
             // res
@@ -190,7 +210,7 @@ namespace CompatibilityPatchHelperPlugin
                 }
 
                 bool assetExistsInMod = ebxModifications.TryGetValue(name, out AssetModification modification);
-                if(assetExistsInMod)
+                if (assetExistsInMod)
                 {
                     EbxAssetEntry entry = modification.AssetEntry;
 
@@ -239,10 +259,9 @@ namespace CompatibilityPatchHelperPlugin
                     }
                 }
             }
+            // None of the stuff that comes after this in the project is relevant to us
 
-            // None of the stuff that comes after this is relevant to us
-
-            return true;
+            return ebxModifications;
         }
     }
 }

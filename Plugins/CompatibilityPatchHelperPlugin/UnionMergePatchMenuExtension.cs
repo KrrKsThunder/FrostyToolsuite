@@ -1,5 +1,6 @@
 ﻿using Frosty.Core;
 using Frosty.Core.Controls;
+using Frosty.Core.Windows;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -40,6 +41,50 @@ namespace CompatibilityPatchHelperPlugin
                 App.Logger.Log("Cannot merge a file with itself!");
                 return;
             }
+
+            StartUnionMerge(firstFileName, secondFileName);
+
         });
+
+        private void StartUnionMerge(string projectName1, string projectName2)
+        {
+
+            FrostyTaskWindow.Show("Union merging projects...", "", task =>
+            {
+                task.Update("loading first project...");
+                var dataFromFirstProject = LimitedProjectLoader.LoadFromProject(projectName1);
+
+                if (dataFromFirstProject.Count == 0)
+                {
+                    App.Logger.Log("Project <{0}> contains no mergeable ebx edits!", projectName1);
+                    return;
+                }
+
+                var ebxNames = dataFromFirstProject.Keys.ToHashSet();
+
+                task.Update("loading second project...", 33d);
+                var dataFromSecondProject = LimitedProjectLoader.LoadFromProject(projectName2, true, ebxNames);
+
+                if (dataFromSecondProject.Count == 0)
+                {
+                    App.Logger.Log("Project <{0}> contains no ebx edits that overlap with the first project!", projectName2);
+                    return;
+                }
+
+                task.Update("begin union merging assets...", 66d);
+
+                foreach( var entry in dataFromSecondProject)
+                {
+                    string assetName = entry.Key;
+                    AssetModification firstProjectEntry = dataFromFirstProject[assetName];
+                    AssetModification secondProjectEntry = entry.Value;
+
+                    CompatibilityPatchHelper.MergeAssets(firstProjectEntry, secondProjectEntry);
+                }
+
+                App.Logger.Log("Done union merging projects <{0}> and <{1}> into the current project", projectName1, projectName2);
+
+            });
+        }
     }
 }

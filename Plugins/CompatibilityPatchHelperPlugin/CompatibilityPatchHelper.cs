@@ -20,13 +20,33 @@ namespace CompatibilityPatchHelperPlugin
     public class CompatibilityPatchHelper
     {
 
+        public static void MergeAssets(AssetModification modification1, AssetModification modification2)
+        {
+            string assetName = modification1.Name;
+
+            EbxAsset mergedAsset = MergeAssets(assetName, modification1.Ebx, modification2.Ebx);
+
+            var addedBundleSet = modification1.AddedBundles.ToHashSet();
+            foreach(var addedBundle in modification2.AddedBundles)
+            {
+                addedBundleSet.Add(addedBundle);
+            }
+
+            EbxAssetEntry mergedAssetEntry = App.AssetManager.AddEbx(assetName, mergedAsset, addedBundleSet.ToArray());
+
+            // have to call these methods again for vanilla assets or same assets
+            mergedAssetEntry.AddToBundles(addedBundleSet);
+            App.AssetManager.ModifyEbx(assetName, mergedAsset);
+        }
+
         /// <summary>
         /// Tries to create a merged version of the both given EbxAssets. Can only perform additive merges.
         /// </summary>
+        /// <param name="assetName"></param>
         /// <param name="asset1"></param>
         /// <param name="asset2"></param>
         /// <returns>A new asset containing all entries of both given ones</returns>
-        public static EbxAsset MergeAssets(EbxAsset asset1, EbxAsset asset2)
+        internal static EbxAsset MergeAssets(string assetName, EbxAsset asset1, EbxAsset asset2)
         {
             // for now just assume they are the same and continue to merging
 
@@ -48,7 +68,7 @@ namespace CompatibilityPatchHelperPlugin
                 
                 if(mergedObjectsMap.TryGetValue(asset2Guid, out object mergedObject))
                 {
-                    MergeObject(mergedObject, asset2Object);
+                    MergeObject(assetName, mergedObject, asset2Object);
                 }
                 else
                 {
@@ -62,7 +82,7 @@ namespace CompatibilityPatchHelperPlugin
         }
 
         // or is this only for root objects?!
-        private static void MergeObject(object o1, object o2)
+        private static bool MergeObject(string assetName, object o1, object o2)
         {
             Type type = o1.GetType();
             if(type != o2.GetType())
@@ -84,8 +104,11 @@ namespace CompatibilityPatchHelperPlugin
                 case "MeshVariationDatabase":
                 default:
                     // no idea, maybe a printout?
-                    break; ;
+                    App.Logger.LogWarning("Cannot merge ebx asset <{0}> of type {1}! You have to manually do that!", assetName, type.Name);
+                    return false;
             }
+
+            return true;
         }
 
         private static void MergeMasterItemList(dynamic mergedMasterItemList, dynamic otherMasterItemList)

@@ -1,4 +1,6 @@
-﻿using Frosty.Core.Attributes;
+﻿using CompatibilityPatchHelperPlugin;
+using Frosty.Core.Attributes;
+using FrostySdk;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -22,5 +24,8 @@ using System.Windows;
 [assembly: Guid("4b612468-9b6a-4304-88a5-055c3575eb3d")]
 
 [assembly: PluginDisplayName("CompatibilityPatchHelperPlugin")]
-[assembly: PluginAuthor("")]
+[assembly: PluginAuthor("KrrKs")]
 [assembly: PluginVersion("1.0.0.0")]
+
+[assembly: PluginValidForProfile((int)ProfileVersion.MassEffectAndromeda)]
+[assembly: RegisterMenuExtension(typeof(UnionMergePatchMenuExtension))]

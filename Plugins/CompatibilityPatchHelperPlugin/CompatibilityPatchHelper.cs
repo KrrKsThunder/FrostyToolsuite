@@ -2,17 +2,21 @@
 using FrostySdk;
 using FrostySdk.Ebx;
 using FrostySdk.IO;
+using FrostySdk.Managers;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.Design.Serialization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Controls;
 
 namespace CompatibilityPatchHelperPlugin
 {
+
     public class CompatibilityPatchHelper
     {
 

@@ -10,13 +10,14 @@ using System.IO;
 namespace CompatibilityPatchHelperPlugin
 {
 
-    public struct AssetModification
+    public class AssetModification
     {
         public string Name;
         public Guid AssetId;
         public EbxAssetEntry AssetEntry;
         public IList<int> AddedBundles;
-        public EbxAsset Ebx;
+
+        public EbxAsset Ebx { get; set; }
     }
 
     internal class LimitedProjectLoader
@@ -52,14 +53,14 @@ namespace CompatibilityPatchHelperPlugin
                 ulong magic = reader.ReadULong();
                 if (magic == Magic)
                 {
-                    ebxModifications = InternalLoad(reader, keepOnlyKnownEntries, ebxNamesToKeep);
+                    ebxModifications = InternalLoad(reader, keepOnlyKnownEntries, ebxNamesToKeep, projectName);
                 }
             }
 
             return ebxModifications;
         }
 
-        private static IDictionary<string, AssetModification> InternalLoad(NativeReader reader, bool keepOnlyKnownEntries, ICollection<String> ebxNamesToKeep)
+        private static IDictionary<string, AssetModification> InternalLoad(NativeReader reader, bool keepOnlyKnownEntries, ICollection<String> ebxNamesToKeep, string projectName)
         {
             // maybe i should have used Y-Wings version from their Merge Plugin as base instead of the project class...
 
@@ -69,14 +70,14 @@ namespace CompatibilityPatchHelperPlugin
 
             if (version != FormatVersion)
             {
-                App.Logger.LogError("Abort, the given project is of version <{0}> wich cant be read by this plugin! Only supports version 14!", version);
+                App.Logger.LogError("Abort, the given project <{0}> is of version <{1}> wich cant be read by this plugin! Only supports version 14!", projectName, version);
                 return ebxModifications;
             }
 
             string gameProfile = reader.ReadNullTerminatedString();
             if (gameProfile.ToLower() != ProfilesLibrary.ProfileName.ToLower())
             {
-                App.Logger.LogError("Selected project was for a different Game!");
+                App.Logger.LogError("Selected project <{0}>  was for a different Game!", projectName);
                 return ebxModifications;
             }
 
@@ -210,11 +211,38 @@ namespace CompatibilityPatchHelperPlugin
                 }
 
                 bool assetExistsInMod = ebxModifications.TryGetValue(name, out AssetModification modification);
+                if (!assetExistsInMod && (!keepOnlyKnownEntries || ebxNamesToKeep.Contains(name)))
+                {
+
+                    EbxAssetEntry originalEntry = App.AssetManager.GetEbxEntry(name);
+
+                    if (originalEntry == null)
+                    {
+                        App.Logger.LogWarning("Could not find asset entry <{0}>", name);
+                    }
+                    else
+                    {
+                        EbxAssetEntry copyEntry = new EbxAssetEntry()
+                        {
+                            Name = originalEntry.Name,
+                            Guid = originalEntry.Guid
+                        };
+
+                        modification = new AssetModification()
+                        {
+                            Name = name,
+                            AssetId = copyEntry.Guid,
+                            AssetEntry = copyEntry
+                        };
+                        ebxModifications.Add(name, modification);
+                        assetExistsInMod = true;
+                    }
+                }
+
                 if (assetExistsInMod)
                 {
                     EbxAssetEntry entry = modification.AssetEntry;
 
-                    // FIXME check for duplicates here!
                     entry.LinkedAssets.AddRange(linkedEntries);
                     entry.AddedBundles.AddRange(bundles);
 
@@ -235,7 +263,7 @@ namespace CompatibilityPatchHelperPlugin
                         }
                         else
                         {
-                            if (!entry.IsAdded && App.PluginManager.GetCustomHandler(entry.Type) != null)
+                            if (!entry.IsAdded && entry.Type != null && App.PluginManager.GetCustomHandler(entry.Type) != null)
                             {
                                 App.Logger.LogError("Cannot correctly read asset: {0}", name);
                             }

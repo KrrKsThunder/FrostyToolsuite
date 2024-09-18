@@ -5,14 +5,8 @@ using FrostySdk.IO;
 using FrostySdk.Managers;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel.Design.Serialization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.ComTypes;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows.Controls;
 
 namespace CompatibilityPatchHelperPlugin
 {
@@ -27,7 +21,7 @@ namespace CompatibilityPatchHelperPlugin
             EbxAsset mergedAsset = MergeAssets(assetName, modification1.Ebx, modification2.Ebx);
 
             var addedBundleSet = modification1.AddedBundles.ToHashSet();
-            foreach(var addedBundle in modification2.AddedBundles)
+            foreach (var addedBundle in modification2.AddedBundles)
             {
                 addedBundleSet.Add(addedBundle);
             }
@@ -60,13 +54,13 @@ namespace CompatibilityPatchHelperPlugin
                     mergedAsset = reader.ReadAsset<EbxAsset>();
             }
 
-            Dictionary<Guid, object> mergedObjectsMap = mergedAsset.Objects.ToDictionary(entry => (Guid)((dynamic)entry).GetInstanceGuid());
+            Dictionary<AssetClassGuid, object> mergedObjectsMap = mergedAsset.Objects.ToDictionary(entry => (AssetClassGuid)((dynamic)entry).GetInstanceGuid());
 
             foreach (dynamic asset2Object in asset2.Objects)
             {
-                Guid asset2Guid = asset2Object.GetInstanceGuid();
-                
-                if(mergedObjectsMap.TryGetValue(asset2Guid, out object mergedObject))
+                AssetClassGuid asset2Guid = asset2Object.GetInstanceGuid();
+
+                if (mergedObjectsMap.TryGetValue(asset2Guid, out object mergedObject))
                 {
                     MergeObject(assetName, mergedObject, asset2Object);
                 }
@@ -85,12 +79,12 @@ namespace CompatibilityPatchHelperPlugin
         private static bool MergeObject(string assetName, object o1, object o2)
         {
             Type type = o1.GetType();
-            if(type != o2.GetType())
+            if (type != o2.GetType())
             {
                 throw new ArgumentException("Types to merge don't match!");
             }
 
-            switch(type.Name)
+            switch (type.Name)
             {
                 case "MasterItemList":
                     MergeMasterItemList(o1, o2);
@@ -153,10 +147,10 @@ namespace CompatibilityPatchHelperPlugin
 
             var pointerMap = mergeList.ToDictionary(pointerRef => pointerRef.External);
 
-            foreach(PointerRef pointerRef in otherList)
+            foreach (PointerRef pointerRef in otherList)
             {
                 var externalPointer = pointerRef.External;
-                if(!pointerMap.ContainsKey(externalPointer))
+                if (!pointerMap.ContainsKey(externalPointer))
                 {
                     mergeList.Add(pointerRef);
                     pointerMap[externalPointer] = pointerRef;

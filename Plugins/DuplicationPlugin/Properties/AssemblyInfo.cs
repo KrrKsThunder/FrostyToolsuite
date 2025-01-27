@@ -25,6 +25,6 @@ using static DuplicationPlugin.DuplicationTool;
 
 [assembly: PluginDisplayName("Asset Duplication")]
 [assembly: PluginAuthor("Cade")]
-[assembly: PluginVersion("1.0.0.0")]
+[assembly: PluginVersion("1.0.0.0 with movie duplication")]
 
 [assembly: RegisterDataExplorerContextMenu(typeof(DuplicateContextMenuItem))]

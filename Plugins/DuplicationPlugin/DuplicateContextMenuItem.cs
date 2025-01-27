@@ -510,6 +510,29 @@ namespace DuplicationPlugin
             }
         }
 
+
+        // actually movie and not texture, but who cares
+        public class MovieTextureExtension : DuplicateAssetExtension
+        {
+            public override string AssetType => "MovieTextureAsset";
+
+            public override EbxAssetEntry DuplicateAsset(EbxAssetEntry entry, string newName, bool createNew, Type newType)
+            {
+                EbxAssetEntry refEntry = base.DuplicateAsset(entry, newName, createNew, newType);
+
+                EbxAsset refAsset = App.AssetManager.GetEbx(refEntry);
+                dynamic refRoot = refAsset.RootObject;
+
+                ChunkAssetEntry movieChunk = App.AssetManager.GetChunkEntry(refRoot.ChunkGuid);
+                ChunkAssetEntry newmovieChunk = DuplicateChunk(movieChunk);
+                refRoot.ChunkGuid = newmovieChunk.Id;
+
+                App.AssetManager.ModifyEbx(refEntry.Name, refAsset);
+
+                return refEntry;
+            }
+        }
+
         #endregion
 
         public class DuplicateAssetExtension

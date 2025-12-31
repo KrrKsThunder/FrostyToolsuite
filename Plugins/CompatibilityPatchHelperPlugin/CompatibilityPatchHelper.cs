@@ -1,4 +1,5 @@
 ﻿using Frosty.Core;
+using Frosty.Core.Viewport;
 using FrostySdk;
 using FrostySdk.Ebx;
 using FrostySdk.IO;
@@ -7,6 +8,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Windows.Media.Media3D;
 
 namespace CompatibilityPatchHelperPlugin
 {
@@ -96,6 +99,8 @@ namespace CompatibilityPatchHelperPlugin
                     MergeNetworkRegistry(o1, o2);
                     break;
                 case "MeshVariationDatabase":
+                    MergeMeshVariationDatabase(o1, o2);
+                    break;
                 default:
                     // no idea, maybe a printout?
                     App.Logger.LogWarning("Cannot merge ebx asset <{0}> of type {1}! You have to manually do that!", assetName, type.Name);
@@ -154,6 +159,72 @@ namespace CompatibilityPatchHelperPlugin
                 {
                     mergeList.Add(pointerRef);
                     pointerMap[externalPointer] = pointerRef;
+                }
+            }
+        }
+
+        private static void MergeMeshVariationDatabase(dynamic mergedMVDB, dynamic otherMVDB)
+        {
+            // i don't think using the MeshVariationDatabase Class from frosty core would be correct here, that seems to be for frosty preview only?
+
+            MergeMeshVariationDatabaseEntries(mergedMVDB.Entries, otherMVDB.Entries);
+            MergeMeshVariationDatabaseEntries(mergedMVDB.RedirectEntries, otherMVDB.RedirectEntries);
+        }
+
+        // key entry used to easier compare MVDB Entries or ReferenceEntries using a dictionary
+        private class MVDBEntryKey
+        {
+            readonly PointerRef MeshReference;
+            readonly UInt32 VariationAssetNameHash;
+
+            public MVDBEntryKey(PointerRef InMeshReference, UInt32 InVariationAssetNameHash)
+            {
+                MeshReference = InMeshReference;
+                VariationAssetNameHash = InVariationAssetNameHash;
+            }
+
+            public static bool operator ==(MVDBEntryKey A, object B) => A.Equals(B);
+
+            public static bool operator !=(MVDBEntryKey A, object B) => !A.Equals(B);
+
+            // override object.Equals
+            public override bool Equals(object obj)
+            {
+
+                if (obj is MVDBEntryKey otherMvdbEntryKey)
+                {
+                    if ( MeshReference.Equals(otherMvdbEntryKey.MeshReference)
+                        && VariationAssetNameHash == otherMvdbEntryKey.VariationAssetNameHash )
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            // override object.GetHashCode
+            public override int GetHashCode()
+            {
+                int hash = 11;
+                hash ^= MeshReference.GetHashCode();
+                hash ^= VariationAssetNameHash.GetHashCode();
+
+                return hash;
+            }
+
+        }
+
+        // should work for MeshVariationDatabaseEntry and MeshVariationDatabaseRedirectEntry
+        private static void MergeMeshVariationDatabaseEntries(List<dynamic> mergedEntries, List<dynamic> otherEntries)
+        {
+            Dictionary<MVDBEntryKey, dynamic> existingEntries = mergedEntries.ToDictionary( entry => new MVDBEntryKey(entry.Mesh, entry.VariationAssetNameHash) );
+
+            foreach ( dynamic otherEntry in otherEntries ) {
+                MVDBEntryKey otherKey = new MVDBEntryKey(otherEntry.Mesh, otherEntry.VariationAssetNameHash);
+                if ( !existingEntries.ContainsKey(otherKey) )
+                {
+                    mergedEntries.Add(otherEntry);
+                    existingEntries[otherKey] = otherEntry;
                 }
             }
         }

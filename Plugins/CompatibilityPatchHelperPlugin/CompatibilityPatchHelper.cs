@@ -1,15 +1,13 @@
 ﻿using Frosty.Core;
-using Frosty.Core.Viewport;
 using FrostySdk;
 using FrostySdk.Ebx;
 using FrostySdk.IO;
 using FrostySdk.Managers;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Windows.Media.Media3D;
 
 namespace CompatibilityPatchHelperPlugin
 {
@@ -167,8 +165,9 @@ namespace CompatibilityPatchHelperPlugin
         {
             // i don't think using the MeshVariationDatabase Class from frosty core would be correct here, that seems to be for frosty preview only?
 
-            MergeMeshVariationDatabaseEntries(mergedMVDB.Entries, otherMVDB.Entries);
-            MergeMeshVariationDatabaseEntries(mergedMVDB.RedirectEntries, otherMVDB.RedirectEntries);
+            // lists can be null, so if the other is filled we have to return that one instead
+            mergedMVDB.Entries = MergeMeshVariationDatabaseEntries(mergedMVDB.Entries, otherMVDB.Entries);
+            mergedMVDB.RedirectEntries = MergeMeshVariationDatabaseEntries(mergedMVDB.RedirectEntries, otherMVDB.RedirectEntries);
         }
 
         // key entry used to easier compare MVDB Entries or ReferenceEntries using a dictionary
@@ -193,8 +192,8 @@ namespace CompatibilityPatchHelperPlugin
 
                 if (obj is MVDBEntryKey otherMvdbEntryKey)
                 {
-                    if ( MeshReference.Equals(otherMvdbEntryKey.MeshReference)
-                        && VariationAssetNameHash == otherMvdbEntryKey.VariationAssetNameHash )
+                    if (MeshReference.Equals(otherMvdbEntryKey.MeshReference)
+                        && VariationAssetNameHash == otherMvdbEntryKey.VariationAssetNameHash)
                     {
                         return true;
                     }
@@ -215,18 +214,42 @@ namespace CompatibilityPatchHelperPlugin
         }
 
         // should work for MeshVariationDatabaseEntry and MeshVariationDatabaseRedirectEntry
-        private static void MergeMeshVariationDatabaseEntries(List<dynamic> mergedEntries, List<dynamic> otherEntries)
+        //private static void MergeMeshVariationDatabaseEntries(List<dynamic> mergedEntries, List<dynamic> otherEntries)
+        private static IList MergeMeshVariationDatabaseEntries(object InNullableList, object InNullableOtherList)
         {
-            Dictionary<MVDBEntryKey, dynamic> existingEntries = mergedEntries.ToDictionary( entry => new MVDBEntryKey(entry.Mesh, entry.VariationAssetNameHash) );
 
-            foreach ( dynamic otherEntry in otherEntries ) {
-                MVDBEntryKey otherKey = new MVDBEntryKey(otherEntry.Mesh, otherEntry.VariationAssetNameHash);
-                if ( !existingEntries.ContainsKey(otherKey) )
-                {
-                    mergedEntries.Add(otherEntry);
-                    existingEntries[otherKey] = otherEntry;
-                }
+            if (InNullableList == null)
+            {
+                return (IList)InNullableOtherList;
             }
+
+            if ((InNullableList is IList mergedEntries)
+                && (InNullableOtherList is IList otherEntries))
+            {
+
+                var existingEntries = new Dictionary<MVDBEntryKey, dynamic>();
+                foreach (dynamic existingEntry in mergedEntries)
+                {
+                    var key = new MVDBEntryKey(existingEntry.Mesh, existingEntry.VariationAssetNameHash);
+                    existingEntries[key] = existingEntry;
+                }
+
+                foreach (dynamic otherEntry in otherEntries)
+                {
+                    MVDBEntryKey otherKey = new MVDBEntryKey(otherEntry.Mesh, otherEntry.VariationAssetNameHash);
+                    if (!existingEntries.ContainsKey(otherKey))
+                    {
+                        mergedEntries.Add(otherEntry);
+                        existingEntries[otherKey] = otherEntry;
+                    }
+                }
+
+                return mergedEntries;
+            }
+
+            // else something weird is going on...
+            App.Logger.LogWarning("Can't merge MeshVariationDatabaseEntry!");
+            return (IList)InNullableList;
         }
     }
 }

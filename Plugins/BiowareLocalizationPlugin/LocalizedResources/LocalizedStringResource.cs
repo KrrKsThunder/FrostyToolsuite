@@ -138,7 +138,11 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             }
 
             m_modifiedResource = modifiedData as ModifiedLocalizationResource;
-            m_modifiedResource?.InitResourceId(resRid);
+            if (m_modifiedResource != null)
+            {
+                m_modifiedResource.InitResourceId(resRid);
+                m_modifiedResource.SaveListener += (s, e) => OnSaveModifiedResource();
+            }
 
             // keep informed about changes...
             entry.AssetModified += (s, e) => OnModified((ResAssetEntry)s);
@@ -186,7 +190,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             // one for the money: This points to what seems to be setup data for generating names of crafted items in DAI
             // They are only used for crafting in DAI, but are always available - even in MEA
             // add item mappint
-            uint craftingItemCount = (uint) ItemNamesToCraftingAdjectiveVariation.Count;
+            uint craftingItemCount = (uint)ItemNamesToCraftingAdjectiveVariation.Count;
             recalculatedAdditionalOffsets.Add(new DataCountAndOffsets()
             {
                 Count = craftingItemCount,
@@ -262,7 +266,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 long actualStringsOffset = writer.Position;
                 if (m_printVerificationTexts)
                 {
-                    App.Logger.Log(".. Writer Position before textlocations is <{0}>, expected <{1}> ", writer.Position, newStringsOffset); 
+                    App.Logger.Log(".. Writer Position before textlocations is <{0}>, expected <{1}> ", writer.Position, newStringsOffset);
                 }
 
                 //Write string id positions
@@ -278,7 +282,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                         encodedTextsGrouping.PrimaryTextIdsAndPositions.Count, writer.Position, recalculatedAdditionalOffsets[0].Offset, writer.Position - actualStringsOffset);
                 }
 
-                foreach(var entry in ItemNamesToCraftingAdjectiveVariation)
+                foreach (var entry in ItemNamesToCraftingAdjectiveVariation)
                 {
                     writer.Write(entry.Key);
                     writer.Write(entry.Value);
@@ -296,7 +300,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     writer.Write(entry.Value);
                 }
 
-                if (m_printVerificationTexts && recalculatedAdditionalOffsets.Count>2)
+                if (m_printVerificationTexts && recalculatedAdditionalOffsets.Count > 2)
                 {
                     App.Logger.Log(".. Writer Position after <{0}> AdjectiveVariationToDeclinationTuple is <{1}>, expected <{2}>. Length of last part was <{3}>",
                         AdjectiveVariationToDeclinationTuple.Count, writer.Position, recalculatedAdditionalOffsets[2].Offset, writer.Position - actualStringsOffset);
@@ -314,7 +318,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
                 if (m_printVerificationTexts)
                 {
-                    App.Logger.Log(".. Writer Position before texts is <{0}>, expected <{1}>", writer.Position, newDataOffset); 
+                    App.Logger.Log(".. Writer Position before texts is <{0}>, expected <{1}>", writer.Position, newDataOffset);
                 }
 
                 // Write encoded texts
@@ -696,6 +700,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             if (newModifiedResource != m_modifiedResource)
             {
                 m_modifiedResource = newModifiedResource;
+                m_modifiedResource.SaveListener += (s, e) => OnSaveModifiedResource();
                 ResourceEventHandlers?.Invoke(this, new EventArgs());
             }
 
@@ -1139,6 +1144,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             {
                 m_modifiedResource = new ModifiedLocalizationResource();
                 m_modifiedResource.InitResourceId(resRid);
+                m_modifiedResource.SaveListener += (s, e) => OnSaveModifiedResource();
 
                 // might need to change this, when exporting the resouce it never exports the current value!
                 App.AssetManager.ModifyRes(resRid, this);
@@ -1152,6 +1158,8 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 && m_modifiedResource.AlteredTexts.Count == 0
                 && m_modifiedResource.AlteredDeclinatedCraftingAdjectives.Count == 0)
             {
+                m_modifiedResource.SaveListener -= (s, e) => OnSaveModifiedResource();
+
                 // remove this resource, it isn't needed anymore
                 // This is also done via the listener, but whatever
                 m_modifiedResource = null;
@@ -1198,6 +1206,16 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             m_modifiedResource.SetDeclinatedCraftingAdjective(adjectiveId, declinations);
         }
 
+        /// <summary>
+        /// Called when the modified resource is saved, i.e., the project. At this time we might overwrite the resources modified data byte array without affecting performance that much...
+        /// </summary>
+        private void OnSaveModifiedResource()
+        {
+            App.Logger.Log("OnSaveModifiedResource called for " + this.Name);
+
+            byte[] modifiedRes = (m_modifiedResource != null) ? SaveBytes() : new byte[0];
+            App.AssetManager.ModifyRes(resRid, modifiedRes, resMeta);
+        }
     }
 
 
@@ -1206,6 +1224,12 @@ namespace BiowareLocalizationPlugin.LocalizedResources
     /// </summary>
     public class ModifiedLocalizationResource : ModifiedResource
     {
+
+
+        ///<summary>
+        /// Event listener triggered when the saveInternal method was called
+        /// </summary>
+        public event EventHandler SaveListener;
 
         /// <summary>
         /// The dictionary of altered or new texts in this modified resource.
@@ -1375,6 +1399,16 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             else
             {
                 SaveVersion2TextsWithAdjectives(writer);
+            }
+
+            // call the listener - should i add the resrid as event identifier?
+            if (SaveListener != null)
+            {
+                SaveListener.Invoke(this, EventArgs.Empty);
+            }
+            else
+            {
+                App.Logger.LogWarning("No SaveListener for resource with Id: " + m_resRid);
             }
         }
 

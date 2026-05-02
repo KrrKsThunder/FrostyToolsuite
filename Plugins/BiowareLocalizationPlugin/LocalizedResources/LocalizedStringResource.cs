@@ -6,6 +6,7 @@ using FrostySdk.Resources;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Packaging;
 using System.Linq;
 using System.Text;
 
@@ -138,11 +139,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             }
 
             m_modifiedResource = modifiedData as ModifiedLocalizationResource;
-            if (m_modifiedResource != null)
-            {
-                m_modifiedResource.InitResourceId(resRid);
-                m_modifiedResource.SaveListener += (s, e) => OnSaveModifiedResource();
-            }
+            m_modifiedResource?.InitResourceId(resRid);
 
             // keep informed about changes...
             entry.AssetModified += (s, e) => OnModified((ResAssetEntry)s);
@@ -700,7 +697,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             if (newModifiedResource != m_modifiedResource)
             {
                 m_modifiedResource = newModifiedResource;
-                m_modifiedResource.SaveListener += (s, e) => OnSaveModifiedResource();
                 ResourceEventHandlers?.Invoke(this, new EventArgs());
             }
 
@@ -1144,7 +1140,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             {
                 m_modifiedResource = new ModifiedLocalizationResource();
                 m_modifiedResource.InitResourceId(resRid);
-                m_modifiedResource.SaveListener += (s, e) => OnSaveModifiedResource();
 
                 // might need to change this, when exporting the resouce it never exports the current value!
                 App.AssetManager.ModifyRes(resRid, this);
@@ -1158,7 +1153,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 && m_modifiedResource.AlteredTexts.Count == 0
                 && m_modifiedResource.AlteredDeclinatedCraftingAdjectives.Count == 0)
             {
-                m_modifiedResource.SaveListener -= (s, e) => OnSaveModifiedResource();
 
                 // remove this resource, it isn't needed anymore
                 // This is also done via the listener, but whatever
@@ -1204,17 +1198,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         {
             ModifyResourceBeforeInsert();
             m_modifiedResource.SetDeclinatedCraftingAdjective(adjectiveId, declinations);
-        }
-
-        /// <summary>
-        /// Called when the modified resource is saved, i.e., the project. At this time we might overwrite the resources modified data byte array without affecting performance that much...
-        /// </summary>
-        private void OnSaveModifiedResource()
-        {
-            App.Logger.Log("OnSaveModifiedResource called for " + this.Name);
-
-            byte[] modifiedRes = (m_modifiedResource != null) ? SaveBytes() : new byte[0];
-            App.AssetManager.ModifyRes(resRid, modifiedRes, resMeta);
         }
     }
 

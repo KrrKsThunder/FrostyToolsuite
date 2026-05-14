@@ -123,8 +123,8 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             if (m_printVerificationTexts)
             {
-                string resMetaStrig = resMeta.Select(b => b.ToString("X")).Aggregate((a, b) => a + b);
-                App.Logger.Log(Name + " ResMeta is: " + resMetaStrig);
+                string resMetaString = resMeta.Select(b => b.ToString("X")).Aggregate((a, b) => a + b);
+                App.Logger.Log(Name + " ResMeta is: 0x" + resMetaString);
             }
 
             if (ProfilesLibrary.DataVersion == (int)ProfileVersion.Anthem)
@@ -234,9 +234,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
                 writer.Write(newDataOffset);
 
+                writer.Write(m_headerData.LanguageAndDeclinationsMarker);
                 writer.Write(m_headerData.Unknown2);
                 writer.Write(m_headerData.Unknown3);
-                writer.Write(m_headerData.Unknown4);
 
                 writer.Write(newNodeCount);
                 writer.Write(nodeOffset);

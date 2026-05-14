@@ -36,9 +36,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             {
                 Unknown1 = reader.ReadUInt(),
                 DataOffset = reader.ReadUInt(),
+                LanguageAndDeclinationsMarker = reader.ReadUInt(),
                 Unknown2 = reader.ReadUInt(),
                 Unknown3 = reader.ReadUInt(),
-                Unknown4 = reader.ReadUInt(),
 
                 NodeCount = reader.ReadUInt(),
                 NodeOffset = reader.ReadUInt(),

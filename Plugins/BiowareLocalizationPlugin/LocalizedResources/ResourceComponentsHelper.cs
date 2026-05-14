@@ -24,10 +24,20 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         // Additional Note: This offset is also part of the metadata, the value in this header is not guaranteed to be correct!
         public uint DataOffset { get; set; }
 
+        // Seems to be an (actually unused?) combination of language and the number of declination together with something else.
+        // 0x {Language Number, e.g., 0 for En, 1 for french --> see TypeExplorer: LanguageFormat, this seems to match}
+        // followed by  000
+        // Last number is 0x4 ( unclear what this means ) + number of declinations to use in this resource.
+        // Examples DAI basegame:
+        //   En globalmaster:              Language 0 + 1 specified declination  =>     0x5
+        //   French globaltranslated:      Language 1 + 8 specified declinations => 0x1000C
+        //   French globaltesttranslated:  Language 1 + 9 specified declinations => 0x1000D
+        //   Russian globaltranslated:     Language 6 + 6 specified declinations => 0x6000A
+        public uint LanguageAndDeclinationsMarker { get; set; }
+
         // also no idea, can set these to zero and nothing bad happens
         public uint Unknown2 { get; set; }
         public uint Unknown3 { get; set; }
-        public uint Unknown4 { get; set; }
 
         // // nodeCount is an even integer! The rootNode as would-be last node in the node list is *not* actually part of the list
         public uint NodeCount { get; set; }
@@ -57,18 +67,14 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
         public override string ToString()
         {
-            string uk1AsHex = Unknown1.ToString("X");
-            string uk2AsHex = Unknown2.ToString("X");
-            string uk3AsHex = Unknown3.ToString("X");
-            string uk4AsHex = Unknown4.ToString("X");
 
             StringBuilder sb = new StringBuilder();
             sb.Append("\n") // newline after resource name
-                .AppendLine($"DataOffset is: <{DataOffset}>")
-                .AppendLine($"unknown1: <{Unknown1} | 0x{uk1AsHex}>")
-                .AppendLine($"unknown2: <{Unknown2} | 0x{uk2AsHex}>")
-                .AppendLine($"unknown3: <{Unknown3} | 0x{uk3AsHex}>")
-                .AppendLine($"unknown4: <{Unknown4} | 0x{uk4AsHex}>")
+                .AppendLine($"DataOffset is: <{DataOffset} | 0x{DataOffset:X}>")
+                .AppendLine($"unknown1: <{Unknown1} | 0x{Unknown1:X}>")
+                .AppendLine($"Language & Declinations Marker: <{LanguageAndDeclinationsMarker} | 0x{LanguageAndDeclinationsMarker:X}>")
+                .AppendLine($"unknown2: <{Unknown2} | 0x{Unknown2:X}>")
+                .AppendLine($"unknown3: <{Unknown3} | 0x{Unknown3:X}>")
                 .AppendLine($"NodeCount: <{NodeCount}> starting at <{NodeOffset}>")
                 .AppendLine($"StringCount: <{StringsCount}> starting at <{StringsOffset}>");
 

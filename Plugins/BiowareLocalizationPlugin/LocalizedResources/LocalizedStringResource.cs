@@ -343,6 +343,11 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             // Try to revert if text equals original
             // -> drawback is long iteration over all texts or another huge instance of textid to text dictionary :(
 
+            // games use newline \n, while editing seems to use system linebreak, so \r\n on windows!
+            // luckyly i dont think i have to deal with old mac os carriage return only or weird EoL sequences...
+            // has to be done here in addition to the modified resource so that the string comparison works correctly
+            string neutralLineBreakText = text.Replace("\r\n", "\n");
+
             // have to try anyway as long as no dedicated remove is present..
             foreach (var entry in m_localizedStrings)
             {
@@ -350,7 +355,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 {
                     // found the right one
                     // neither the entryValue nor the given text can be null
-                    if (entry.Value.Equals(text))
+                    if (entry.Value.Equals(neutralLineBreakText))
                     {
                         // It is the original text, remove instead
                         RemoveText(textId);
@@ -360,7 +365,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 }
             }
 
-            SetText0(textId, text);
+            SetText0(textId, neutralLineBreakText);
         }
 
         public void RemoveText(uint textId)

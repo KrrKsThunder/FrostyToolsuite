@@ -401,7 +401,12 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 allBits.AddRange(textEntry.EncodedText.Value);
             }
 
-            int byteSize = allBits.Count / 8 + 1;
+            // Bytesize needs to be multiples of 4 bytes long!
+            int byteSize = allBits.Count +7 / 8;
+
+            // next 4 bytesize alingment -> + 3 to get to or over the next 4 byte thershold, then null out the last 2 bits / ( dec 3 ) for the actual size.
+            byteSize = (byteSize + 3) & ~3;
+
             BitArray ba = new BitArray(allBits.ToArray());
 
             byte[] byteArray = new byte[byteSize];

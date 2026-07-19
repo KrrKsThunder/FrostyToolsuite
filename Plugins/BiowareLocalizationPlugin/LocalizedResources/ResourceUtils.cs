@@ -162,8 +162,8 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     leafCharacters.Add(node.Letter);
                 }
             }
-
             leafCharacters.Sort();
+
             return leafCharacters;
         }
 
@@ -411,12 +411,17 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
         /// <summary>
         /// Checks whether the strings to check include only characters that are included in the given supported char list.
+        /// Assumes that the given list of characters is ordered numerically.
         /// </summary>
         /// <param name="stringsToCheck"></param>
-        /// <param name="allSupportedCharacters"></param>
+        /// <param name="allSupportedCharacters">The list of chars supported by the encoding, ordered by their numeric value</param>
+        /// <param name="firstMiss">if this returns false, then this character is the first one found missing in the list of supported characters</param>
         /// <returns>true if all string characters are included in the supported char list</returns>
-        public static bool IncludesOnlySupportedCharacters(IEnumerable<string> stringsToCheck, List<char> allSupportedCharacters)
+        public static bool IncludesOnlySupportedCharacters(IEnumerable<string> stringsToCheck, List<char> allSupportedCharacters, out char firstMiss)
         {
+            firstMiss = (char) 0;
+            bool printVerificationTexts = Config.Get(BiowareLocalizationPluginOptions.PRINT_VERIFICATION_TEXTS, false, ConfigScope.Game);
+
             HashSet<char> allCharsToCheck = new HashSet<char>();
             foreach (string stringToCheck in stringsToCheck)
             {
@@ -428,25 +433,49 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             foreach (char toCheck in allCharsToCheck)
             {
-                foreach (char supported in allSupportedCharacters)
+                if(!IsCharInOrderedListOfChars(toCheck, allSupportedCharacters, printVerificationTexts))
                 {
-                    if (supported == toCheck)
-                    {
-                        // found it, no need to search further
-                        break;
-                    }
-                    else if (supported > toCheck)
-                    {
-                        // already past the point where it should have been found
-                        return false;
-                    }
+                    firstMiss = toCheck;
+                    return false;
                 }
-                // char not found in supported chars
-                return false;
             }
 
             // all chars found
             return true;
+        }
+
+        private static bool IsCharInOrderedListOfChars(char toCheck, List<char> allSupportedCharacters, bool printVerificationText)
+        {
+            foreach (char supported in allSupportedCharacters)
+            {
+                if (supported == toCheck)
+                {
+                    // found it, no need to search further
+                    return true;
+                }
+                if (supported > toCheck)
+                {
+                    // already past the point where it should have been found
+                    if(printVerificationText)
+                    {
+                        LogMissingCharacterWarning(toCheck, string.Format("before reaching char <{0} / u{1}>", supported, (int)supported), allSupportedCharacters);
+                    }
+                    return false;
+                }
+            }
+            // char not found in supported chars
+            if(printVerificationText)
+            {
+                LogMissingCharacterWarning(toCheck, "in all the supported characters", allSupportedCharacters);
+            }
+            return false;
+        }
+
+        private static void LogMissingCharacterWarning(char missingChar, String intermediateMessage, List<char> supportedChars)
+        {
+            App.Logger.LogWarning("Did not find char <{0} / u{1}> {2}", missingChar, (int)missingChar, intermediateMessage);
+            App.Logger.LogWarning("List of supported chars: [{0}]", String.Join(", ", supportedChars.Select(c => c.ToString()).ToArray()));
+            App.Logger.LogWarning("List of supported chars values: [{0}]", String.Join(", ", supportedChars.Select(c => ((int)c).ToString()).ToArray()));
         }
 
         /// <summary>

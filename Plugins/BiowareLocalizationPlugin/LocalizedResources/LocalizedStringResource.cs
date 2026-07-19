@@ -27,11 +27,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         public event EventHandler ResourceEventHandlers;
 
         /// <summary>
-        /// Toggle to enable / disable further debug log messages -Remember to turn this off before release!
-        /// </summary>
-        private static readonly bool m_printVerificationTexts = false;
-
-        /// <summary>
         /// How to handle incorrect metadata offsets in the resource header.
         /// </summary>
         private static readonly PositionOffsetErrorHandling m_ContinueAfterOffsetErrorVariant = PositionOffsetErrorHandling.HEADER_DATAOFFSET;
@@ -69,7 +64,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         }
 
         /// <summary>
-        /// List of supported characters, ordered by their position within the node list, i.e., their frequency within all texts
+        /// List of supported characters, ordered by their character ( number ), so checks for the presence of a char can know that it is not present when past its numeric value in the list.
         /// </summary>
         private List<char> m_supportedCharacters = new List<char>();
 
@@ -121,7 +116,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 .Append(entry.Name)
                 .ToString();
 
-            if (m_printVerificationTexts)
+            if (IsPrintVerificationTexts())
             {
                 string resMetaString = resMeta.Select(b => b.ToString("X")).Aggregate((a, b) => a + b);
                 App.Logger.Log(Name + " ResMeta is: 0x" + resMetaString);
@@ -148,8 +143,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         public override byte[] SaveBytes()
         {
 
-            // remove these logs
-            if (m_printVerificationTexts) { App.Logger.Log("Writing Texts for <{0}>", Name); }
+            bool isprintVerificationTexts = IsPrintVerificationTexts();
+
+            if (isprintVerificationTexts) { App.Logger.Log("Writing Texts for <{0}>", Name); }
 
             /*Plan of Action:
              * -recalculate Huffman encoding
@@ -249,7 +245,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     writer.Write(uds.Offset);
                 }
 
-                if (m_printVerificationTexts)
+                if (isprintVerificationTexts)
                 {
                     App.Logger.Log(".. Writer Position before <{0}> nodes is <{1}>, expected <{2}> ", nodeList.Count, writer.Position, nodeOffset);
                 }
@@ -261,7 +257,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 }
 
                 long actualStringsOffset = writer.Position;
-                if (m_printVerificationTexts)
+                if (isprintVerificationTexts)
                 {
                     App.Logger.Log(".. Writer Position before textlocations is <{0}>, expected <{1}> ", writer.Position, newStringsOffset);
                 }
@@ -273,7 +269,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     writer.Write(entry.Value.Position);
                 }
 
-                if (m_printVerificationTexts)
+                if (isprintVerificationTexts)
                 {
                     App.Logger.Log(".. Writer Position after <{0}> textlocations is <{1}>, expected <{2}>. Length of last part was <{3}>",
                         encodedTextsGrouping.PrimaryTextIdsAndPositions.Count, writer.Position, recalculatedAdditionalOffsets[0].Offset, writer.Position - actualStringsOffset);
@@ -285,7 +281,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     writer.Write(entry.Value);
                 }
 
-                if (m_printVerificationTexts)
+                if (isprintVerificationTexts)
                 {
                     App.Logger.Log(".. Writer Position after <{0}> ItemNamesToCraftingAdjectiveVariation is <{1}>, expected <{2}>. Length of last part was <{3}>",
                         ItemNamesToCraftingAdjectiveVariation.Count, writer.Position, recalculatedAdditionalOffsets[1].Offset, writer.Position - actualStringsOffset);
@@ -297,7 +293,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     writer.Write(entry.Value);
                 }
 
-                if (m_printVerificationTexts && recalculatedAdditionalOffsets.Count > 2)
+                if (isprintVerificationTexts && recalculatedAdditionalOffsets.Count > 2)
                 {
                     App.Logger.Log(".. Writer Position after <{0}> AdjectiveVariationToDeclinationTuple is <{1}>, expected <{2}>. Length of last part was <{3}>",
                         AdjectiveVariationToDeclinationTuple.Count, writer.Position, recalculatedAdditionalOffsets[2].Offset, writer.Position - actualStringsOffset);
@@ -313,7 +309,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     }
                 }
 
-                if (m_printVerificationTexts)
+                if (isprintVerificationTexts)
                 {
                     App.Logger.Log(".. Writer Position before texts is <{0}>, expected <{1}>", writer.Position, newDataOffset);
                 }
@@ -322,7 +318,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 byte[] bitTexts = ResourceUtils.GetTextRepresentationToWrite(encodedTextsGrouping.AllEncodedTextPositions);
                 writer.Write(bitTexts);
 
-                if (m_printVerificationTexts)
+                if (isprintVerificationTexts)
                 {
                     App.Logger.Log(".. Writer Position after encoded texts is <{0}>. EncodedTexts size was <{1}> byte", writer.Position, bitTexts.Length);
                 }
@@ -543,6 +539,15 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         }
 
         /// <summary>
+        /// Whether or not to print verification texts
+        /// </summary>
+        /// <returns>true if the logs should be printed</returns>
+        private static bool IsPrintVerificationTexts()
+        {
+            return Config.Get(BiowareLocalizationPluginOptions.PRINT_VERIFICATION_TEXTS, false, ConfigScope.Game);
+        }
+
+        /// <summary>
         /// Reads a single text from the given bit reader's current position
         /// </summary>
         /// <param name="bitReader"></param>
@@ -658,6 +663,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <returns>List of LocalizedStringWithId</returns>
         private static List<LocalizedStringWithId> ReadDragonAgeDeclinatedItemNamePartIdsAndOffsets(NativeReader reader, DataCountAndOffsets countAndOffset, int declinationNumber)
         {
+            bool isPrintVerificationTexts = IsPrintVerificationTexts();
 
             List<LocalizedStringWithId> itemCraftingNameParts = new List<LocalizedStringWithId>();
             for (int i = 0; i < countAndOffset.Count; i++)
@@ -666,14 +672,14 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 int defaultPosition = reader.ReadInt();
 
                 LocalizedStringWithId namePartInfo =
-                    m_printVerificationTexts ?
+                    isPrintVerificationTexts ?
                     new DAILocalizedAdjective(textId, defaultPosition, declinationNumber)
                     : new LocalizedStringWithId(textId, defaultPosition);
 
                 itemCraftingNameParts.Add(namePartInfo);
             }
 
-            if (m_printVerificationTexts && countAndOffset.Count > 0)
+            if (isPrintVerificationTexts && countAndOffset.Count > 0)
             {
                 App.Logger.Log("... Read <{0}> declinated adjectives in a block", countAndOffset.Count);
             }
@@ -689,7 +695,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             ModifiedAssetEntry modifiedAsset = assetEntry.ModifiedEntry;
             ModifiedLocalizationResource newModifiedResource = modifiedAsset?.DataObject as ModifiedLocalizationResource;
 
-            if (m_printVerificationTexts)
+            if (IsPrintVerificationTexts())
             {
                 App.Logger.Log("Asset <{0}> entered onModified", assetEntry.DisplayName);
             }
@@ -766,7 +772,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             m_headerData = ResourceUtils.ReadHeader(reader);
 
-            if (m_printVerificationTexts)
+            if (IsPrintVerificationTexts())
             {
                 App.Logger.Log("Read header data for <{0}>: {1}", Name, m_headerData.ToString());
                 App.Logger.Log("... size of resource is <{0}> bytes", reader.Length);
@@ -988,6 +994,8 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         private List<SortedDictionary<uint, string>> GetAllSortedTextsToWrite()
         {
 
+            bool isPrintVerificationTexts = IsPrintVerificationTexts();
+
             // contains the texts string sorted by their id, with position in the list by their id encountere in the resource block
             List<SortedDictionary<uint, string>> allTextsToWrite = new List<SortedDictionary<uint, string>>();
 
@@ -999,7 +1007,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 primaryTextsToWrite[entry.Item1] = entry.Item2;
             }
 
-            if (m_printVerificationTexts)
+            if (isPrintVerificationTexts)
             {
                 App.Logger.Log("..Preparing to write resource <{0}>. Added <{1}> primary texts.", Name, primaryTextsToWrite.Count);
             }
@@ -1046,7 +1054,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 }
             }
 
-            if (m_printVerificationTexts)
+            if (isPrintVerificationTexts)
             {
                 PrintDeclinatedAdjectivesWritingVerifications(allTextsToWrite);
             }
@@ -1097,10 +1105,19 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         private HuffmanNode GetEncodingRootNode(List<SortedDictionary<uint, string>> allSortedTexts)
         {
 
-            if (m_printVerificationTexts)
+            bool isPrintVerificationTexts = IsPrintVerificationTexts();
+            bool keepOriginalEncodingIfPossible = Config.Get(BiowareLocalizationPluginOptions.KEEP_ORIGINAL_ENCODING_IF_POSSIBLE, false, ConfigScope.Game); ;
+
+            if (keepOriginalEncodingIfPossible)
             {
-                App.Logger.Log("Recalculating encoding for resource: <{0}>", Name);
+                if (ResourceUtils.IncludesOnlySupportedCharacters(allSortedTexts.SelectMany(dictionary => dictionary.Values), m_supportedCharacters, out char missingChar))
+                {
+                    if (isPrintVerificationTexts) { App.Logger.Log("Use existing encoding for resource <{0}>", Name); }
+                    return m_encodingRootNode;
+                }
+                else if (isPrintVerificationTexts) { App.Logger.Log("Recalculating encoding for resource: <{0}> due to missing at least character <{1} / u{2}> in encoding", Name, missingChar, (int)missingChar); }
             }
+            else if (isPrintVerificationTexts) { App.Logger.Log("Recalculating encoding for resource: <{0}>", Name); }
 
             var allTexts = new HashSet<string>();
             foreach (var entry in allSortedTexts)
@@ -1243,7 +1260,11 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <param name="text">The new string</param>
         public void SetText(uint textId, string text)
         {
-            AlteredTexts[textId] = text;
+            // games use newline \n, while editing seems to use system linebreak, so \r\n on windows!
+            // luckyly i dont think i have to deal with old mac os carriage return only or weird EoL sequences...
+            string neutralLineBreakText = text.Replace("\r\n", "\n");
+
+            AlteredTexts[textId] = neutralLineBreakText;
         }
 
         /// <summary>
@@ -1385,14 +1406,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             }
 
             // call the listener - should i add the resrid as event identifier?
-            if (SaveListener != null)
-            {
-                SaveListener.Invoke(this, EventArgs.Empty);
-            }
-            else
-            {
-                App.Logger.LogWarning("No SaveListener for resource with Id: " + m_resRid);
-            }
+            SaveListener?.Invoke(this, EventArgs.Empty);
         }
 
         public ulong GetResRid()

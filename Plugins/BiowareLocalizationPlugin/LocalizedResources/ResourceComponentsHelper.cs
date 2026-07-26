@@ -447,18 +447,18 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         public List<SortedDictionary<uint, EncodedTextPosition>> DeclinatedAdjectivesIdsAndPositions { get; private set; }
 
         /// <summary>
-        /// Just all of the encoded texts with position again.
+        /// The byte array of teh encoded texts
         /// </summary>
-        public SortedSet<EncodedTextPosition> AllEncodedTextPositions { get; private set; }
+        public byte[] TextBytes { get; private set; }
 
         public EncodedTextPositionGrouping(
-            SortedDictionary<uint, EncodedTextPosition> primaryTextIdsAndPositions,
-            List<SortedDictionary<uint, EncodedTextPosition>> declinatedAdjectiveIdsAndPositions,
-            SortedSet<EncodedTextPosition> allEncodedTextPositions)
+            SortedDictionary<uint, EncodedTextPosition> inPrimaryTextIdsAndPositions,
+            List<SortedDictionary<uint, EncodedTextPosition>> inDeclinatedAdjectiveIdsAndPositions,
+            byte[] InTextBytes)
         {
-            this.PrimaryTextIdsAndPositions = primaryTextIdsAndPositions;
-            this.DeclinatedAdjectivesIdsAndPositions = declinatedAdjectiveIdsAndPositions;
-            this.AllEncodedTextPositions = allEncodedTextPositions;
+            this.PrimaryTextIdsAndPositions = inPrimaryTextIdsAndPositions;
+            this.DeclinatedAdjectivesIdsAndPositions = inDeclinatedAdjectiveIdsAndPositions;
+            this.TextBytes = InTextBytes;
         }
     }
 

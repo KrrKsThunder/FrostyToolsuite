@@ -177,7 +177,8 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// Tests that, when a modified resource is written to a byte array that same byte array can be read again and produce the exact same texts.
         /// </summary>
         /// <param name="resource"></param>
-        public static void ReadWriteTest(LocalizedStringResource resource)
+        /// <returns>The recreated resource</returns>
+        public static LocalizedStringResource ReadWriteTest(LocalizedStringResource resource)
         {
             App.Logger.Log("Test Rereading saved Data for <{0}>", resource.Name);
 
@@ -244,6 +245,8 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     TestTextsFromReReadResource(originalBlockData, recreatedBlockData, $"declinatedAdjectives[{i}]");
                 }
             }
+
+            return recreation;
         }
 
         private static void TestTextsFromReReadResource(
@@ -329,7 +332,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 {
                     App.Logger.Log("...<{0}> entries missmatch and {3} are missing out of all <{1}> {2} entries", missMatching, originalData.Count, blockNameForErrorMessages, missingIds);
                 }
-
             }
         }
     }

@@ -5,8 +5,8 @@ using FrostySdk.Managers;
 using FrostySdk.Resources;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
-using System.IO.Packaging;
 using System.Linq;
 using System.Text;
 
@@ -138,6 +138,38 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             // keep informed about changes...
             entry.AssetModified += (s, e) => OnModified((ResAssetEntry)s);
+
+            // TODO remove this again!
+            originalResourceSizeInBytes = reader.Length;
+            zzz_fuckingstupidTextsNotBeingDisplayedHelperFunction();
+        }
+
+        // TODO remove this!
+        private long originalResourceSizeInBytes = -1;
+        private void zzz_fuckingstupidTextsNotBeingDisplayedHelperFunction()
+        {
+            if (m_modifiedResource != null || Name.Contains("dummy"))
+            {
+                if(originalResourceSizeInBytes <0 )
+                {
+                    App.Logger.LogWarning("Resource <{0}> original size was not specified!", Name);
+                }
+                App.Logger.Log("Resource <{0}> size in bytes: <{1}>", Name, originalResourceSizeInBytes.ToString("N0"));
+                long bitlength = (originalResourceSizeInBytes - m_headerData.DataOffset) * 8;
+                App.Logger.Log("Encoded text bit lengths of resource <{0}> is <{1}>", Name, bitlength.ToString("N0"));
+                foreach (string sid in new string[] { "00044EB0", "00044EBE", "00044EBF", "00044EE1" })
+                {
+                    string stringPos = m_localizedStrings.Where(e => e.Id.Equals(uint.Parse(sid, NumberStyles.HexNumber))).Select(e => e.DefaultPosition.ToString("N0")).FirstOrDefault();
+                    if (stringPos != null)
+                    {
+                        App.Logger.Log("Rus text with issue <{0}> at bit offset: <{1}>", sid, stringPos);
+                    }
+                }
+            }
+            if (m_modifiedResource != null)
+            {
+                ResourceTestUtils.ReadWriteTest(this);
+            }
         }
 
         public override byte[] SaveBytes()
@@ -182,7 +214,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             // one for the money: This points to what seems to be setup data for generating names of crafted items in DAI
             // They are only used for crafting in DAI, but are always available - even in MEA
-            // add item mappint
+            // add item mapping
             uint craftingItemCount = (uint)ItemNamesToCraftingAdjectiveVariation.Count;
             recalculatedAdditionalOffsets.Add(new DataCountAndOffsets()
             {
@@ -284,7 +316,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 if (isprintVerificationTexts)
                 {
                     App.Logger.Log(".. Writer Position after <{0}> ItemNamesToCraftingAdjectiveVariation is <{1}>, expected <{2}>. Length of last part was <{3}>",
-                        ItemNamesToCraftingAdjectiveVariation.Count, writer.Position, recalculatedAdditionalOffsets[1].Offset, writer.Position - actualStringsOffset);
+                        ItemNamesToCraftingAdjectiveVariation.Count, writer.Position, recalculatedAdditionalOffsets[1].Offset, writer.Position - recalculatedAdditionalOffsets[0].Offset);
                 }
 
                 foreach (var entry in AdjectiveVariationToDeclinationTuple)
@@ -296,7 +328,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 if (isprintVerificationTexts && recalculatedAdditionalOffsets.Count > 2)
                 {
                     App.Logger.Log(".. Writer Position after <{0}> AdjectiveVariationToDeclinationTuple is <{1}>, expected <{2}>. Length of last part was <{3}>",
-                        AdjectiveVariationToDeclinationTuple.Count, writer.Position, recalculatedAdditionalOffsets[2].Offset, writer.Position - actualStringsOffset);
+                        AdjectiveVariationToDeclinationTuple.Count, writer.Position, recalculatedAdditionalOffsets[2].Offset, writer.Position - recalculatedAdditionalOffsets[1].Offset);
                 }
 
                 // write the ids and positions of the declinated adjectives.
@@ -315,12 +347,12 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 }
 
                 // Write encoded texts
-                byte[] bitTexts = ResourceUtils.GetTextRepresentationToWrite(encodedTextsGrouping.AllEncodedTextPositions);
-                writer.Write(bitTexts);
+                byte[] textBytes = encodedTextsGrouping.TextBytes;
+                writer.Write(textBytes);
 
                 if (isprintVerificationTexts)
                 {
-                    App.Logger.Log(".. Writer Position after encoded texts is <{0}>. EncodedTexts size was <{1}> byte", writer.Position, bitTexts.Length);
+                    App.Logger.Log(".. Writer Position after encoded texts is <{0}>. EncodedTexts size was <{1}> bytes", writer.Position, textBytes.Length);
                 }
 
                 return writer.ToByteArray();
@@ -713,6 +745,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             // revert the metadata just in case
             ReplaceMetaData(m_headerData.DataOffset);
+
+            // remove this again!
+            zzz_fuckingstupidTextsNotBeingDisplayedHelperFunction();
         }
 
         /// <summary>
@@ -856,6 +891,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <param name="stringsCount"></param>
         private void ReadStringData(NativeReader reader, uint stringsCount)
         {
+
             for (int i = 0; i < stringsCount; i++)
             {
                 uint stringId = reader.ReadUInt();
@@ -875,7 +911,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     idList = m_stringIdsAtPositionOffset[positionOffset];
                 }
                 idList.Add(stringId);
-
             }
         }
 

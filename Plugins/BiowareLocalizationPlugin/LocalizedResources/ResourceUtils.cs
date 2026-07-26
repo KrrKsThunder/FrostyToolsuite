@@ -375,7 +375,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <param name="startPosition"></param>
         /// <param name="textBlock"></param>
         /// <returns>the position after the given text has been written.</returns>
-        public static int UpdateTextAndGetNextTextPosition(int startPosition, EncodedTextPosition textBlock)
+        private static int UpdateTextAndGetNextTextPosition(int startPosition, EncodedTextPosition textBlock)
         {
             int nextPosition = startPosition;
             if (textBlock.Position < 0)
@@ -385,6 +385,64 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             }
 
             return nextPosition;
+        }
+
+        // Simple naive attempt at finding bit overlaps for texts.
+        // this is probably now working out well or at all.
+        private static void FindTextPositionWithOverlapp(EncodedTextPosition textBlockToInsert, List<bool> CurrentListOfTextsBits)
+        {
+            List<bool> bitsToInsert = textBlockToInsert.EncodedText.Value;
+
+            // the list must include at least the char sequence for the delimiter, so it is never empty
+            for (int offset = 0; offset < CurrentListOfTextsBits.Count; offset++)
+            {
+                bool lastOnesMatched = false;
+                // i don't like this nested loop inside another loop with break calls nested, but i don't see a better way right now at 3:30 am :(
+                for (int testBitAt = 0; testBitAt < bitsToInsert.Count; testBitAt++)
+                {
+                    // offset + testbit beyond current list of bits -> ? abort, update and return depending on previous match
+                    // bit does not match -> go to next offset / break
+                    // bit matches:
+                    //      - before end: go check next bit
+                    //      - at end/all bits match -> update and return from method
+                    //      - all bits match until end of currentlist.. -> update and return from method
+
+                    if (offset + testBitAt >= CurrentListOfTextsBits.Count)
+                    {
+                        if (!lastOnesMatched)
+                        {
+                            // if no match so far -> break and retry from next offset
+                            break;
+                        }
+                        // if matched so far -> update partial, use offset and return
+                        textBlockToInsert.Position = offset;
+                        CurrentListOfTextsBits.AddRange(bitsToInsert.GetRange(testBitAt, bitsToInsert.Count - testBitAt));
+                        return;
+                    }
+
+                    if (bitsToInsert[testBitAt] != CurrentListOfTextsBits[offset + testBitAt])
+                    {
+                        // start again from next offset.
+                        break;
+                    }
+
+                    // else last one did match!
+                    lastOnesMatched = true;
+
+                    if (testBitAt == bitsToInsert.Count - 1)
+                    {
+                        // all the bits match!
+                        textBlockToInsert.Position = offset;
+                        return;
+                    }
+
+                    // we we have a partial match - we already handled going past the current list size, so just do nothing and check the next testBit!
+                }
+            }
+
+            // no match whatsoever
+            textBlockToInsert.Position = CurrentListOfTextsBits.Count;
+            CurrentListOfTextsBits.AddRange(bitsToInsert);
         }
 
         /// <summary>
@@ -401,13 +459,22 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 allBits.AddRange(textEntry.EncodedText.Value);
             }
 
+            return GetByteArrayFromBitList(allBits);
+        }
+
+        /// <summary>
+        /// Returns a byte array from the bit list
+        /// </summary>
+        /// <param name="bitList"></param>
+        private static byte[] GetByteArrayFromBitList(List<bool> bitList)
+        {
             // Bytesize needs to be multiples of 4 bytes long!
-            int byteSize = allBits.Count +7 / 8;
+            int byteSize = bitList.Count + 7 / 8;
 
             // next 4 bytesize alingment -> + 3 to get to or over the next 4 byte thershold, then null out the last 2 bits / ( dec 3 ) for the actual size.
             byteSize = (byteSize + 3) & ~3;
 
-            BitArray ba = new BitArray(allBits.ToArray());
+            BitArray ba = new BitArray(bitList.ToArray());
 
             byte[] byteArray = new byte[byteSize];
             ba.CopyTo(byteArray, 0);
@@ -574,12 +641,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 encodedDeclinatedArticleTexts.Add(encodedTexts);
             }
 
-            // Calculate the actual bit offsets for the texts
-            int currentTextPosition = 0;
-            foreach (EncodedTextPosition textPosition in uniqueTextPositions.Values)
-            {
-                currentTextPosition = ResourceUtils.UpdateTextAndGetNextTextPosition(currentTextPosition, textPosition);
-            }
+            byte[] textBytes = UpdatePositionsAndCreateTextBytes(uniqueTextPositions.Values);
 
             ///* enable this for testing and debugging */
             //ResourceTestUtils.VerifyTextPositions(uniqueTextPositions.Values);
@@ -593,7 +655,40 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 encodedDeclinatedArticleTextsById.Add(encodedTextsById);
             }
 
-            return new EncodedTextPositionGrouping(primaryTextsSortedById, encodedDeclinatedArticleTextsById, new SortedSet<EncodedTextPosition>(uniqueTextPositions.Values));
+            return new EncodedTextPositionGrouping(primaryTextsSortedById, encodedDeclinatedArticleTextsById, textBytes);
+        }
+        
+        private static byte[] UpdatePositionsAndCreateTextBytes(IEnumerable<EncodedTextPosition> allEncodedTextPositions)
+        {
+
+            bool useDefaultSequentialWrite = true;
+
+            byte[] textBytes;
+            if (useDefaultSequentialWrite)
+            {
+                // Calculate the actual bit offsets for the texts
+                int currentTextPosition = 0;
+                foreach (EncodedTextPosition textPosition in allEncodedTextPositions)
+                {
+                    currentTextPosition = UpdateTextAndGetNextTextPosition(currentTextPosition, textPosition);
+                }
+                // this sorted set can only be created after the positions are set!
+                var uniqueTextsWithPosition = new SortedSet<EncodedTextPosition>(allEncodedTextPositions);
+                textBytes = GetTextRepresentationToWrite(uniqueTextsWithPosition);
+            }
+            else
+            {
+                App.Logger.LogWarning("Using experimantal slow method for writing byte array!");
+
+                List<bool> textBits = new List<bool>();
+                foreach (EncodedTextPosition textPosition in allEncodedTextPositions)
+                {
+                    FindTextPositionWithOverlapp(textPosition, textBits);
+                }
+                textBytes = GetByteArrayFromBitList(textBits); ;
+            }
+
+            return textBytes;
         }
 
         /// <summary>

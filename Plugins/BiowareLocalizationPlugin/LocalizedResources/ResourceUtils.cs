@@ -6,7 +6,10 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Input;
 
 namespace BiowareLocalizationPlugin.LocalizedResources
 {
@@ -391,58 +394,209 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         // this is probably now working out well or at all.
         private static void FindTextPositionWithOverlapp(EncodedTextPosition textBlockToInsert, List<bool> CurrentListOfTextsBits)
         {
-            List<bool> bitsToInsert = textBlockToInsert.EncodedText.Value;
+            List<bool> encodedTextBits = textBlockToInsert.EncodedText.Value;
 
             // the list must include at least the char sequence for the delimiter, so it is never empty
-            for (int offset = 0; offset < CurrentListOfTextsBits.Count; offset++)
+            // FIXME: highlimit == count causes early stop at the highest loops first working bitoffset
+            // FIXME2: Nope there is an issue with the loop function to find the bits, it seems to return false too often.
+            int offsetHighlimit = CurrentListOfTextsBits.Count - encodedTextBits.Count;
+
+            //
+            App.Logger.Log("text with length <{0}>, checking up to highoffset <{1}> of current length <{2}>", encodedTextBits.Count, offsetHighlimit, CurrentListOfTextsBits.Count);
+
+            ParallelLoopResult offsetResult = Parallel.For(0, offsetHighlimit, (int offset, ParallelLoopState state) =>
             {
-                bool lastOnesMatched = false;
-                // i don't like this nested loop inside another loop with break calls nested, but i don't see a better way right now at 3:30 am :(
-                for (int testBitAt = 0; testBitAt < bitsToInsert.Count; testBitAt++)
+                bool foundworkingOffset = GetBitOffset(CurrentListOfTextsBits, offset, encodedTextBits);
+                if (foundworkingOffset)
                 {
-                    // offset + testbit beyond current list of bits -> ? abort, update and return depending on previous match
-                    // bit does not match -> go to next offset / break
-                    // bit matches:
-                    //      - before end: go check next bit
-                    //      - at end/all bits match -> update and return from method
-                    //      - all bits match until end of currentlist.. -> update and return from method
+                    state.Break();
+                }
+            });
 
-                    if (offset + testBitAt >= CurrentListOfTextsBits.Count)
+            bool foundPosition = offsetResult.LowestBreakIteration.HasValue;
+            int foundOffset = CurrentListOfTextsBits.Count;
+            List<bool> bitsToInsert = encodedTextBits;
+            if (foundPosition)
+            {
+                // this means we  found something int he loop
+                foundOffset = ((int)offsetResult.LowestBreakIteration.Value);
+            }
+            else if(offsetHighlimit>0) // --> happens during the first loop when CurrentListOfTextsBits is empty
+            {
+                // loop over the last bits sequentially in slow..
+                for (int offset = offsetHighlimit; offset < CurrentListOfTextsBits.Count; offset++)
+                {
+                    foundPosition = GetBitOffset(CurrentListOfTextsBits, offset, encodedTextBits);
+                    if (foundPosition)
                     {
-                        if (!lastOnesMatched)
-                        {
-                            // if no match so far -> break and retry from next offset
-                            break;
-                        }
-                        // if matched so far -> update partial, use offset and return
-                        textBlockToInsert.Position = offset;
-                        CurrentListOfTextsBits.AddRange(bitsToInsert.GetRange(testBitAt, bitsToInsert.Count - testBitAt));
-                        return;
-                    }
-
-                    if (bitsToInsert[testBitAt] != CurrentListOfTextsBits[offset + testBitAt])
-                    {
-                        // start again from next offset.
+                        foundOffset = offset;
                         break;
                     }
-
-                    // else last one did match!
-                    lastOnesMatched = true;
-
-                    if (testBitAt == bitsToInsert.Count - 1)
-                    {
-                        // all the bits match!
-                        textBlockToInsert.Position = offset;
-                        return;
-                    }
-
-                    // we we have a partial match - we already handled going past the current list size, so just do nothing and check the next testBit!
                 }
             }
 
-            // no match whatsoever
-            textBlockToInsert.Position = CurrentListOfTextsBits.Count;
+            if(foundPosition)
+            {
+                int numberOfMissingBitsToAppend = foundOffset + encodedTextBits.Count - CurrentListOfTextsBits.Count;
+                if (numberOfMissingBitsToAppend > 0)
+                {
+
+                    bitsToInsert = encodedTextBits.GetRange(encodedTextBits.Count - numberOfMissingBitsToAppend, numberOfMissingBitsToAppend);
+
+                    //
+                    App.Logger.Log(
+                        "found overlapping at offset <{0}>, the last <{1}> of <{2}> bits have to be appended - <{3}> bits",
+                        foundOffset,
+                        numberOfMissingBitsToAppend,
+                        encodedTextBits.Count,
+                        bitsToInsert.Count
+                    );
+                }
+            }
+
+            textBlockToInsert.Position = foundOffset;
             CurrentListOfTextsBits.AddRange(bitsToInsert);
+
+            //// original sequential test
+            //for (int offset = 0; offset < offsetHighlimit; offset++)
+            //{
+            //    bool lastOnesMatched = false;
+            //    // i don't like this nested loop inside another loop with break calls nested, but i don't see a better way right now at 3:30 am :(
+            //    for (int testBitAt = 0; testBitAt < bitsToInsert.Count; testBitAt++)
+            //    {
+            //        // offset + testbit beyond current list of bits -> ? abort, update and return depending on previous match
+            //        // bit does not match -> go to next offset / break
+            //        // bit matches:
+            //        //      - before end: go check next bit
+            //        //      - at end/all bits match -> update and return from method
+            //        //      - all bits match until end of currentlist.. -> update and return from method
+
+            //        if (offset + testBitAt >= CurrentListOfTextsBits.Count)
+            //        {
+            //            if (!lastOnesMatched)
+            //            {
+            //                // if no match so far -> break and retry from next offset
+            //                break;
+            //            }
+            //            // if matched so far -> update partial, use offset and return
+            //            textBlockToInsert.Position = offset;
+            //            CurrentListOfTextsBits.AddRange(bitsToInsert.GetRange(testBitAt, bitsToInsert.Count - testBitAt));
+            //            return;
+            //        }
+
+            //        if (bitsToInsert[testBitAt] != CurrentListOfTextsBits[offset + testBitAt])
+            //        {
+            //            // start again from next offset.
+            //            break;
+            //        }
+
+            //        // else last one did match!
+            //        lastOnesMatched = true;
+
+            //        if (testBitAt == bitsToInsert.Count - 1)
+            //        {
+            //            // all the bits match!
+            //            textBlockToInsert.Position = offset;
+            //            return;
+            //        }
+
+            //        // we we have a partial match - we already handled going past the current list size, so just do nothing and check the next testBit!
+            //    }
+            //}
+
+            //// no match whatsoever
+            //textBlockToInsert.Position = CurrentListOfTextsBits.Count;
+            //CurrentListOfTextsBits.AddRange(bitsToInsert);
+        }
+
+        private static bool GetBitOffset(List<bool> currentListOfTextsBits, int offset, List<bool> bitsToInsert)
+        {
+            bool match = false;
+            // i don't like this nested loop inside another loop with break calls nested, but i don't see a better way right now at 3:30 am :(
+            for (int testBitAt = 0; testBitAt < bitsToInsert.Count; testBitAt++)
+            {
+                // offset + testbit beyond current list of bits -> ? abort, update and return depending on previous match
+                // bit does not match -> go to next offset / break
+                // bit matches:
+                //      - before end: go check next bit
+                //      - at end/all bits match -> update and return from method
+                //      - all bits match until end of currentlist.. -> update and return from method
+
+                if (offset + testBitAt >= currentListOfTextsBits.Count)
+                {
+                    // if matched so far -> update partial, use offset and return, else retry from next offset
+                    return match;
+                }
+
+                if (bitsToInsert[testBitAt] != currentListOfTextsBits[offset + testBitAt])
+                {
+                    // start again from next offset.
+                    return false;
+                }
+
+                // else last one did match!
+                match = true;
+                if (testBitAt == bitsToInsert.Count - 1)
+                {
+                    // all the bits match!
+                    return match;
+                }
+
+                // we we have a partial match - we already handled going past the current list size, so just do nothing and check the next testBit!
+            }
+            return match;
+        }
+
+        private static byte[] getTextSizedOrderedByteArrayWithOverlapp(Dictionary<string, EncodedText> dictionaryOfEncodedTexts, Dictionary<EncodedText, EncodedTextPosition> uniqueTextPositions)
+        {
+
+            // this is some bullshit variant, just for test
+            // it doesnt even work properly...
+
+            IComparer<string> stringLenghtCompare = Comparer<string>.Create(
+                (a, b) => {
+                    int lc = b.Length.CompareTo(a.Length); // reverse
+                    if (lc != 0) return lc;
+                    return a.CompareTo(b);
+                } ); // wtf is this?
+            SortedDictionary<string, EncodedText> sortedStringDict = new SortedDictionary<string, EncodedText>(dictionaryOfEncodedTexts, stringLenghtCompare);
+
+            List<bool> encodedTextBits = new List<bool>();
+            List<string> alreadyUsedStrings = new List<string>();
+            foreach (var entry in sortedStringDict)
+            {
+                string stringToAdd = entry.Key;
+                EncodedText currentText = entry.Value;
+                EncodedTextPosition currentTextPositionData = uniqueTextPositions[currentText];
+
+                // parallel attempt
+                Parallel.ForEach(alreadyUsedStrings,
+                    (string alreadyUsedString, ParallelLoopState state) =>
+                    {
+                        if (alreadyUsedString.EndsWith(stringToAdd))
+                        {
+                            EncodedText longerEncodedString = dictionaryOfEncodedTexts[alreadyUsedString];
+                            int bitOffset = longerEncodedString.GetLength() - currentText.GetLength(); // this should work, right?!
+
+                            int longerEncodedStringPosition = uniqueTextPositions[longerEncodedString].Position;
+
+                            currentTextPositionData.Position = longerEncodedStringPosition + bitOffset;
+
+                            state.Break();
+                        }
+                    }
+                );
+
+                // not found:
+                if (currentTextPositionData.Position<0)
+                {
+                    currentTextPositionData.Position = encodedTextBits.Count;
+                    encodedTextBits.AddRange(currentTextPositionData.EncodedText.Value);
+                }
+
+                alreadyUsedStrings.Add(stringToAdd);
+            }
+            return GetByteArrayFromBitList(encodedTextBits);
         }
 
         /// <summary>
@@ -641,7 +795,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 encodedDeclinatedArticleTexts.Add(encodedTexts);
             }
 
-            byte[] textBytes = UpdatePositionsAndCreateTextBytes(uniqueTextPositions.Values);
+            byte[] textBytes = UpdatePositionsAndCreateTextBytes(dictionaryOfEncodedTexts, uniqueTextPositions);
 
             ///* enable this for testing and debugging */
             //ResourceTestUtils.VerifyTextPositions(uniqueTextPositions.Values);
@@ -658,34 +812,55 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             return new EncodedTextPositionGrouping(primaryTextsSortedById, encodedDeclinatedArticleTextsById, textBytes);
         }
         
-        private static byte[] UpdatePositionsAndCreateTextBytes(IEnumerable<EncodedTextPosition> allEncodedTextPositions)
+        private static byte[] UpdatePositionsAndCreateTextBytes(Dictionary<string, EncodedText> dictionaryOfEncodedTexts, Dictionary<EncodedText, EncodedTextPosition> uniqueTextPositions)
         {
 
-            bool useDefaultSequentialWrite = true;
+            // TODO make this an enum!
+            int writeVariant = 1;
 
             byte[] textBytes;
-            if (useDefaultSequentialWrite)
+            switch(writeVariant)
             {
-                // Calculate the actual bit offsets for the texts
-                int currentTextPosition = 0;
-                foreach (EncodedTextPosition textPosition in allEncodedTextPositions)
-                {
-                    currentTextPosition = UpdateTextAndGetNextTextPosition(currentTextPosition, textPosition);
-                }
-                // this sorted set can only be created after the positions are set!
-                var uniqueTextsWithPosition = new SortedSet<EncodedTextPosition>(allEncodedTextPositions);
-                textBytes = GetTextRepresentationToWrite(uniqueTextsWithPosition);
-            }
-            else
-            {
-                App.Logger.LogWarning("Using experimantal slow method for writing byte array!");
 
-                List<bool> textBits = new List<bool>();
-                foreach (EncodedTextPosition textPosition in allEncodedTextPositions)
-                {
-                    FindTextPositionWithOverlapp(textPosition, textBits);
-                }
-                textBytes = GetByteArrayFromBitList(textBits); ;
+                case 0:
+                    // Calculate the actual bit offsets for the texts
+                    int currentTextPosition = 0;
+                    IEnumerable<EncodedTextPosition> allEncodedTextPositions = uniqueTextPositions.Values;
+                    foreach (EncodedTextPosition textPosition in allEncodedTextPositions)
+                    {
+                        currentTextPosition = UpdateTextAndGetNextTextPosition(currentTextPosition, textPosition);
+                    }
+                    // this sorted set can only be created after the positions are set!
+                    var uniqueTextsWithPosition = new SortedSet<EncodedTextPosition>(allEncodedTextPositions);
+                    textBytes = GetTextRepresentationToWrite(uniqueTextsWithPosition);
+                    break;
+
+                case 1:
+                    App.Logger.LogWarning("Using experimantal extremely slow bitwise method for writing byte array!");
+
+                    List<EncodedTextPosition> textsSortedByEncodedLength = uniqueTextPositions.Values.ToList();
+
+                    textsSortedByEncodedLength.Sort( (a,b)=> {
+                        int lengthCompare = b.EncodedText.GetLength().CompareTo(a.EncodedText.GetLength());
+                        if (lengthCompare != 0) return lengthCompare;
+                        return a.GetHashCode().CompareTo(b.GetHashCode());
+                    } );
+
+                    List<bool> textBits = new List<bool>();
+                    foreach (EncodedTextPosition textPosition in textsSortedByEncodedLength)
+                    {
+                        FindTextPositionWithOverlapp(textPosition, textBits);
+                    }
+                    textBytes = GetByteArrayFromBitList(textBits);
+                    break;
+
+                case 2:
+                    App.Logger.LogWarning("Using experimantal very slow method for String comparison overerlapping byte array!");
+                    textBytes = getTextSizedOrderedByteArrayWithOverlapp(dictionaryOfEncodedTexts, uniqueTextPositions);
+                    break;
+
+                default:
+                    throw new ArgumentException("Invalid textwrite variant selected!");
             }
 
             return textBytes;
@@ -717,6 +892,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     // so we reduce the set of encodedTextPositions here a bit while keeping a link to the text id via the encodedText itself
                     // The original resource is compressed even further, with different texts being stored as overlapping sequences of the same bits
                     encodedText = new EncodedText(ResourceUtils.GetEncodedText(text, characterEncoding));
+                    dictionaryOfEncodedTexts[text] = encodedText;
                     uniqueTextPositions[encodedText] = new EncodedTextPosition(encodedText);
                 }
                 encodedTexts[entry.Key] = encodedText;

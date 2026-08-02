@@ -157,12 +157,25 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 App.Logger.Log("Resource <{0}> size in bytes: <{1}>", Name, originalResourceSizeInBytes.ToString("N0"));
                 long bitlength = (originalResourceSizeInBytes - m_headerData.DataOffset) * 8;
                 App.Logger.Log("Encoded text bit lengths of resource <{0}> is <{1}>", Name, bitlength.ToString("N0"));
+
+
+                List<HuffmanNode> nodeList = ResourceUtils.GetNodeListToWrite(m_encodingRootNode);
+                Dictionary<char, List<bool>> encoding = ResourceUtils.GetCharEncoding(nodeList);
+
+
                 foreach (string sid in new string[] { "00044EB0", "00044EBE", "00044EBF", "00044EE1" })
                 {
-                    string stringPos = m_localizedStrings.Where(e => e.Id.Equals(uint.Parse(sid, NumberStyles.HexNumber))).Select(e => e.DefaultPosition.ToString("N0")).FirstOrDefault();
-                    if (stringPos != null)
+                    LocalizedString lstring = m_localizedStrings.Where(e => e.Id.Equals(uint.Parse(sid, NumberStyles.HexNumber))).FirstOrDefault();
+                    if (lstring != null)
                     {
+                        string stringPos = lstring.DefaultPosition.ToString("N0");
                         App.Logger.Log("Rus text with issue <{0}> at bit offset: <{1}>", sid, stringPos);
+
+                        List<bool> encodedText = ResourceUtils.GetEncodedText(lstring.Value, encoding);
+
+                        String bitSequence = string.Join(", ", encodedText.Select(b => b ? 1 : 0).ToArray());
+
+                        App.Logger.Log( "Text <{0}> yields bitsequence [{1}]", sid, bitSequence );
                     }
                 }
             }

@@ -35,8 +35,10 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         //   Russian globaltranslated:     Language 6 + 6 specified declinations => 0x6000A
         public uint LanguageAndDeclinationsMarker { get; set; }
 
-        // also no idea, can set these to zero and nothing bad happens
+        // also no idea, can set these to zero and nothing bad happens. This might be a priority of sorts. Seems to be the same for similar resources accross languages.
         public uint Unknown2 { get; set; }
+
+        // absolutely no clue whtat this is, every resource has a different value that doesnt seem to coincide with anything. Setting them to zero or maxvalue does not seem to change anything.
         public uint Unknown3 { get; set; }
 
         // // nodeCount is an even integer! The rootNode as would-be last node in the node list is *not* actually part of the list
@@ -447,7 +449,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         public List<SortedDictionary<uint, EncodedTextPosition>> DeclinatedAdjectivesIdsAndPositions { get; private set; }
 
         /// <summary>
-        /// The byte array of teh encoded texts
+        /// The byte array of the encoded texts
         /// </summary>
         public byte[] TextBytes { get; private set; }
 

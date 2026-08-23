@@ -735,6 +735,102 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             return new EncodedTextPositionGrouping(primaryTextsSortedById, encodedDeclinatedArticleTextsById, textBytes);
         }
 
+        public static EncodedTextPositionGrouping GetEncodedTextsWhileReusingStringData(
+            List<HuffmanNode> huffmanNodeList,
+            List<LocalizedStringWithId> primaryExistingTexts,
+            DragonAgeDeclinatedAdjectiveTuples dragonAgeDeclinatedAdjectives,
+            ModifiedLocalizationResource alterations,
+            byte[] originalData
+            )
+        {
+
+            Dictionary<char, List<bool>> encoding = ResourceUtils.GetCharEncoding(huffmanNodeList);
+
+            // first get the default entries
+
+            SortedDictionary<uint, EncodedTextPosition> primaryTextIdsAndPositions = new SortedDictionary<uint, EncodedTextPosition>();
+            foreach (var entry in primaryExistingTexts)
+            {
+                primaryTextIdsAndPositions[entry.Id] = FromLocalizedTextPosition(entry, encoding);
+            }
+
+            List<SortedDictionary<uint, EncodedTextPosition>> declinatedAdjectivesIdsAndPositions = new List<SortedDictionary<uint, EncodedTextPosition>>();
+            for (int i = 0; i < dragonAgeDeclinatedAdjectives.NumberOfDeclinations; i++)
+            {
+                SortedDictionary<uint, EncodedTextPosition> adjectiveIdsAndPositionsOfDeclination = new SortedDictionary<uint, EncodedTextPosition>();
+                declinatedAdjectivesIdsAndPositions.Add(adjectiveIdsAndPositionsOfDeclination);
+                foreach (var entry in dragonAgeDeclinatedAdjectives.GetAdjectivesOfDeclination(i))
+                {
+                    adjectiveIdsAndPositionsOfDeclination[entry.Id] = FromLocalizedTextPosition(entry, encoding);
+                }
+            }
+
+            // now add in the modifications...
+            List<SortedDictionary<uint, string>> allEditsGroupedTextsById = new List<SortedDictionary<uint, string>>();
+            allEditsGroupedTextsById.Add(new SortedDictionary<uint, string>(alterations.AlteredTexts));
+
+            if (alterations.AlteredDeclinatedCraftingAdjectives.Count > 0)
+            {
+                // assume that only the specified number of declinations exists...
+                for (int i = 0; i < dragonAgeDeclinatedAdjectives.NumberOfDeclinations; i++)
+                {
+                    allEditsGroupedTextsById.Add(new SortedDictionary<uint, string>());
+                }
+
+                // add the actual entries
+                foreach (var alteredDeclination in alterations.AlteredDeclinatedCraftingAdjectives)
+                {
+                    uint id = alteredDeclination.Key;
+                    List<string> declinations = alteredDeclination.Value;
+
+                    for (int declinationNumber = 0; declinationNumber < declinations.Count; declinationNumber++)
+                    {
+                        string declination = declinations[declinationNumber];
+                        SortedDictionary<uint, string> declinationsTexts = allEditsGroupedTextsById[declinationNumber + 1];
+                        declinationsTexts[id] = declination;
+                    }
+                }
+            }
+
+            EncodedTextPositionGrouping onlyEdits = GetEncodedTextsToWrite(allEditsGroupedTextsById, encoding);
+
+            int offset = originalData.Length * 8;
+
+            foreach (var entry in onlyEdits.PrimaryTextIdsAndPositions)
+            {
+                uint id = entry.Key;
+                EncodedTextPosition textPosition = entry.Value;
+                textPosition.Position = textPosition.Position + offset;
+
+                primaryTextIdsAndPositions[id] = textPosition;
+            }
+
+            // TODO same with adjective declinations!
+
+            byte[] stringBytesToWrite = new byte[originalData.Length + onlyEdits.TextBytes.Length];
+
+            Array.Copy(originalData, 0, stringBytesToWrite, 0, originalData.Length);
+            Array.Copy(onlyEdits.TextBytes, 0, stringBytesToWrite, originalData.Length, onlyEdits.TextBytes.Length);
+
+            return new EncodedTextPositionGrouping(primaryTextIdsAndPositions, declinatedAdjectivesIdsAndPositions, stringBytesToWrite);
+        }
+
+        /// <summary>
+        /// Creates a new EncodedTextPosition entry for the given LocalizedString entry
+        /// </summary>
+        /// <param name="aLocalizedString"></param>
+        /// <param name="encoding"></param>
+        /// <returns>EncodedTextPosition</returns>
+        private static EncodedTextPosition FromLocalizedTextPosition(LocalizedString aLocalizedString, Dictionary<char, List<bool>> encoding)
+        {
+            EncodedText et = new EncodedText(GetEncodedText(aLocalizedString.Value, encoding));
+            return new EncodedTextPosition(et)
+            {
+                Position = aLocalizedString.DefaultPosition
+            };
+        }
+
+
         /// <summary>
         /// Different variants how to generate the bit array for the given data.
         /// </summary>
@@ -800,7 +896,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     {
                         FindTextPositionWithOverlapp(textPosition, textBits);
                     }
-                    App.Logger.Log("Variant 1 BitList is size: <{0}>", textBits.Count);
                     textBytes = GetByteArrayFromBitList(textBits);
                     break;
 
@@ -835,8 +930,10 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     throw new ArgumentException("Invalid textwrite variant selected!");
             }
 
-            //
-            App.Logger.Log("Using Variant <{0}> the encoded text size was <{1}> bytes", writeVariant, textBytes.Length);
+            if (Config.Get(BiowareLocalizationPluginOptions.PRINT_VERIFICATION_TEXTS, false, ConfigScope.Game))
+            {
+                App.Logger.Log("Using Variant <{0}> the encoded text size was <{1}> bytes", writeVariant, textBytes.Length);
+            }
 
             return textBytes;
         }

@@ -8,7 +8,9 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Resources;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace BiowareLocalizationPlugin.LocalizedResources
 {
@@ -100,6 +102,11 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// </summary>
         internal DragonAgeDeclinatedAdjectiveTuples DragonAgeDeclinatedCraftingNames { get; private set; }
 
+        /// <summary>
+        /// The original stringData byte array. This might be reused if the encoding does not change.
+        /// </summary>
+        private byte[] m_originalStringDataBits { get; set; }
+
         // TODO this currently stores a lot of redundant information, clean up at a later stage!
 
         public LocalizedStringResource()
@@ -141,11 +148,14 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             // TODO remove this again!
             originalResourceSizeInBytes = reader.Length;
+            reader.Position = 0;
+            m_originalData = reader.ReadToEnd();
             zzz_fuckingstupidTextsNotBeingDisplayedHelperFunction();
         }
 
         // TODO remove this!
         private long originalResourceSizeInBytes = -1;
+        byte[] m_originalData;
         private void zzz_fuckingstupidTextsNotBeingDisplayedHelperFunction()
         {
             if (m_modifiedResource != null || Name.Contains("dummy"))
@@ -171,17 +181,36 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                         string stringPos = lstring.DefaultPosition.ToString("N0");
                         App.Logger.Log("Rus text with issue <{0}> at bit offset: <{1}>", sid, stringPos);
 
-                        List<bool> encodedText = ResourceUtils.GetEncodedText(lstring.Value, encoding);
-
-                        String bitSequence = string.Join(", ", encodedText.Select(b => b ? 1 : 0).ToArray());
-
-                        App.Logger.Log( "Text <{0}> yields bitsequence [{1}]", sid, bitSequence );
+                        //List<bool> encodedText = ResourceUtils.GetEncodedText(lstring.Value, encoding);
+                        //String bitSequence = string.Join(", ", encodedText.Select(b => b ? 1 : 0).ToArray());
+                        //App.Logger.Log( "Text <{0}> yields bitsequence [{1}]", sid, bitSequence );
                     }
                 }
             }
             if (m_modifiedResource != null)
             {
-                ResourceTestUtils.ReadWriteTest(this);
+                var reReadResource = ResourceTestUtils.ReadWriteTest(this);
+
+                // TODO figure out a way to compare byte arrays wihout having the expected differences in text offset marked...
+
+                // save again...
+                byte[] altered = SaveBytes();
+
+
+                // differences are here?
+                int checkStartPos = (int)m_headerData.StringsOffset;
+                int checkEndPos = (int) m_headerData.DataOffset;
+
+
+                Parallel.For(checkStartPos, checkEndPos, (int i) =>
+                {
+                    if (m_originalData[i] != altered[i])
+                    {
+                        App.Logger.Log("Difference at position <{0}>, original was <{1}>, rewrite was <{2}>", i, m_originalData[i].ToString("X"), altered[i].ToString("X"));
+                    }
+                });
+
+                App.Logger.Log("Finished Byte Array Comparison");
             }
         }
 
@@ -204,20 +233,46 @@ namespace BiowareLocalizationPlugin.LocalizedResources
              * -write strings with the new huffman encoding
              */
 
-            List<SortedDictionary<uint, string>> allTexts = GetAllSortedTextsToWrite();
-            HuffmanNode newRootNode = GetEncodingRootNode(allTexts);
+            HuffmanNode rootNodeToUse;
+            List<HuffmanNode> nodeList;
+            EncodedTextPositionGrouping encodedTextsGrouping;
 
-            uint nodeOffset = m_headerData.NodeOffset;
+            bool z_reuseOriginalData = true && IsReusingStringDataPossible();
 
-            // flatten the tree, we need to list representation again...
-            List<HuffmanNode> nodeList = ResourceUtils.GetNodeListToWrite(newRootNode);
+            if (z_reuseOriginalData)
+            {
+                App.Logger.LogWarning("Try reusing original data for resource <{0}>", Name);
+                rootNodeToUse = m_encodingRootNode;
+
+                // flatten the tree, we need to list representation again...
+                nodeList = ResourceUtils.GetNodeListToWrite(rootNodeToUse);
+
+                encodedTextsGrouping = ResourceUtils.GetEncodedTextsWhileReusingStringData(nodeList, m_localizedStrings, DragonAgeDeclinatedCraftingNames, m_modifiedResource, m_originalStringDataBits );
+            }
+            else
+            {
+                List<SortedDictionary<uint, string>> allTexts = GetAllSortedTextsToWrite();
+                rootNodeToUse = GetEncodingRootNode(allTexts);
+
+                // flatten the tree, we need to list representation again...
+                nodeList = ResourceUtils.GetNodeListToWrite(rootNodeToUse);
+
+                Dictionary<char, List<bool>> encoding = ResourceUtils.GetCharEncoding(nodeList);
+                encodedTextsGrouping = ResourceUtils.GetEncodedTextsToWrite(allTexts, encoding);
+            }
+
             uint newNodeCount = (uint)nodeList.Count;
+
+            //uint nodeOffset = m_headerData.NodeOffset;
+            uint nodeOffset = 40 + (((uint)encodedTextsGrouping.DeclinatedAdjectivesIdsAndPositions.Count + 2) * 8);
+
+            if(nodeOffset != m_headerData.NodeOffset)
+            {
+                App.Logger.LogWarning("Nodeoffset of Resource <{0}> changed from <{1}> to <{2}>! This is not supposed to happen!", Name, m_headerData.NodeOffset, nodeOffset);
+            }
 
             uint encodingNodesSize = newNodeCount * 4;
             uint newStringsOffset = nodeOffset + encodingNodesSize;
-
-            Dictionary<char, List<bool>> encoding = ResourceUtils.GetCharEncoding(nodeList);
-            EncodedTextPositionGrouping encodedTextsGrouping = ResourceUtils.GetEncodedTextsToWrite(allTexts, encoding);
 
             uint newStringsCount = (uint)encodedTextsGrouping.PrimaryTextIdsAndPositions.Count;
 
@@ -861,6 +916,10 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             // finally read the actual text content
             ReadStrings(reader, m_encodingRootNode, GetAllLocalizedStrings());
+
+            // also store the original stringdata:
+            reader.Position = m_headerData.DataOffset;
+            m_originalStringDataBits = reader.ReadToEnd();
         }
 
         /// <summary>
@@ -1039,6 +1098,30 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         }
 
         /// <summary>
+        /// Checks whether the original encoding supports all altered texts and adjectives, so reusing the encoding is possible.
+        /// </summary>
+        /// <returns></returns>
+        private bool IsReusingStringDataPossible()
+        {
+            foreach( List<string> altered in m_modifiedResource.AlteredDeclinatedCraftingAdjectives.Values)
+            {
+                if( !ResourceUtils.IncludesOnlySupportedCharacters(altered, m_supportedCharacters, out char firstMissInAdjectives))
+                {
+                    App.Logger.LogWarning("Cannot reuse existing Strings byte array because altered crafting adjectives contain letter <{0}> not found in encoding!", firstMissInAdjectives);
+                    return false;
+                }
+            }
+
+            if (!ResourceUtils.IncludesOnlySupportedCharacters(m_modifiedResource.AlteredTexts.Values, m_supportedCharacters, out char firstMissInPrimaryTexts))
+            {
+                App.Logger.LogWarning("Cannot reuse existing Strings byte array because altered texts contain letter <{0}> not found in encoding!", firstMissInPrimaryTexts);
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Returns the sorted dictionary of texts by their id, as they should be written into the resource.
         /// Each of the dictionarys sorted by id is in turn found in a list based on where the text ids originate from,
         /// i.e., the primary text id definition, or one of the blocks for declinated crafting adjective name-parts.
@@ -1111,7 +1194,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             {
                 PrintDeclinatedAdjectivesWritingVerifications(allTextsToWrite);
             }
-
 
             return allTextsToWrite;
         }

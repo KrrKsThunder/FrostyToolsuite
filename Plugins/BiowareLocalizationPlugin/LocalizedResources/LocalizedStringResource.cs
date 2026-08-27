@@ -8,7 +8,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Resources;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -105,7 +104,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <summary>
         /// The original stringData byte array. This might be reused if the encoding does not change.
         /// </summary>
-        private byte[] m_originalStringDataBits { get; set; }
+        private byte[] m_originalStringDataBits;
 
         // TODO this currently stores a lot of redundant information, clean up at a later stage!
 
@@ -160,7 +159,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         {
             if (m_modifiedResource != null || Name.Contains("dummy"))
             {
-                if(originalResourceSizeInBytes <0 )
+                if (originalResourceSizeInBytes < 0)
                 {
                     App.Logger.LogWarning("Resource <{0}> original size was not specified!", Name);
                 }
@@ -196,21 +195,42 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 // save again...
                 byte[] altered = SaveBytes();
 
-
-                // differences are here?
-                int checkStartPos = (int)m_headerData.StringsOffset;
-                int checkEndPos = (int) m_headerData.DataOffset;
-
-
-                Parallel.For(checkStartPos, checkEndPos, (int i) =>
+                // string data is not in same position?
+                for (int i = 1; i < m_localizedStrings.Count; i++)
                 {
-                    if (m_originalData[i] != altered[i])
-                    {
-                        App.Logger.Log("Difference at position <{0}>, original was <{1}>, rewrite was <{2}>", i, m_originalData[i].ToString("X"), altered[i].ToString("X"));
-                    }
-                });
+                    var previousId = m_localizedStrings[i - 1].Id;
+                    var currentId = m_localizedStrings[i].Id;
 
-                App.Logger.Log("Finished Byte Array Comparison");
+                    var previousNonShiftId = previousId < TextID.variantAddition ? previousId : previousId - TextID.variantAddition;
+
+                    if (currentId <= previousNonShiftId)
+                    {
+                        App.Logger.Log("Current id <{0}> is after ID <{1}> in string list!", currentId.ToString("X"), previousId.ToString("X"));
+                    }
+                }
+
+                //int checkStartPos = (int)m_headerData.AdjectiveDeclinationsCountsAndOffsets.Offset;
+                //int checkEndPos = (int)m_headerData.DataOffset;
+                //// additional changes before (int)m_headerData.DataOffset;
+
+                //if(m_headerData.MaxDeclinations > 1)
+                //{
+                //    checkStartPos = (int)m_headerData.DragonAgeDeclinatedCraftingNamePartsCountAndOffset[0].Offset;
+                //    checkEndPos = (int)m_headerData.DragonAgeDeclinatedCraftingNamePartsCountAndOffset[1].Offset;
+                //}
+
+                //App.Logger.Log("Checking between bytes <{0}> and <{1}>", checkStartPos, checkEndPos);
+                //App.Logger.Log(m_headerData.ToString());
+
+                //Parallel.For(checkStartPos, checkEndPos, (int i) =>
+                //{
+                //    if (m_originalData[i] != altered[i])
+                //    {
+                //        App.Logger.Log("Difference at position <{0}>, original was <{1}>, rewrite was <{2}>", i, m_originalData[i].ToString("X"), altered[i].ToString("X"));
+                //    }
+                //});
+
+                //App.Logger.Log("Finished Byte Array Comparison");
             }
         }
 
@@ -237,7 +257,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             List<HuffmanNode> nodeList;
             EncodedTextPositionGrouping encodedTextsGrouping;
 
-            bool z_reuseOriginalData = true && IsReusingStringDataPossible();
+            bool z_reuseOriginalData = false && IsReusingStringDataPossible();
 
             if (z_reuseOriginalData)
             {
@@ -247,7 +267,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 // flatten the tree, we need to list representation again...
                 nodeList = ResourceUtils.GetNodeListToWrite(rootNodeToUse);
 
-                encodedTextsGrouping = ResourceUtils.GetEncodedTextsWhileReusingStringData(nodeList, m_localizedStrings, DragonAgeDeclinatedCraftingNames, m_modifiedResource, m_originalStringDataBits );
+                encodedTextsGrouping = ResourceUtils.GetEncodedTextsWhileReusingStringData(nodeList, m_localizedStrings, DragonAgeDeclinatedCraftingNames, m_modifiedResource, m_originalStringDataBits);
             }
             else
             {
@@ -266,7 +286,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             //uint nodeOffset = m_headerData.NodeOffset;
             uint nodeOffset = 40 + (((uint)encodedTextsGrouping.DeclinatedAdjectivesIdsAndPositions.Count + 2) * 8);
 
-            if(nodeOffset != m_headerData.NodeOffset)
+            if (nodeOffset != m_headerData.NodeOffset)
             {
                 App.Logger.LogWarning("Nodeoffset of Resource <{0}> changed from <{1}> to <{2}>! This is not supposed to happen!", Name, m_headerData.NodeOffset, nodeOffset);
             }
@@ -363,9 +383,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 }
 
                 //Write string id positions
-                foreach (KeyValuePair<uint, EncodedTextPosition> entry in encodedTextsGrouping.PrimaryTextIdsAndPositions)
+                foreach (KeyValuePair<TextID, EncodedTextPosition> entry in encodedTextsGrouping.PrimaryTextIdsAndPositions)
                 {
-                    writer.Write(entry.Key);
+                    writer.Write(entry.Key.Id);
                     writer.Write(entry.Value.Position);
                 }
 
@@ -1103,9 +1123,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <returns></returns>
         private bool IsReusingStringDataPossible()
         {
-            foreach( List<string> altered in m_modifiedResource.AlteredDeclinatedCraftingAdjectives.Values)
+            foreach (List<string> altered in m_modifiedResource.AlteredDeclinatedCraftingAdjectives.Values)
             {
-                if( !ResourceUtils.IncludesOnlySupportedCharacters(altered, m_supportedCharacters, out char firstMissInAdjectives))
+                if (!ResourceUtils.IncludesOnlySupportedCharacters(altered, m_supportedCharacters, out char firstMissInAdjectives))
                 {
                     App.Logger.LogWarning("Cannot reuse existing Strings byte array because altered crafting adjectives contain letter <{0}> not found in encoding!", firstMissInAdjectives);
                     return false;

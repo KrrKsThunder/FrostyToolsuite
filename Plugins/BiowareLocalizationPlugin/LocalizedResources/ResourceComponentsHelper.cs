@@ -80,7 +80,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 .AppendLine($"NodeCount: <{NodeCount}> starting at <{NodeOffset}>")
                 .AppendLine($"StringCount: <{StringsCount}> starting at <{StringsOffset}>");
 
-            if(ItemNameSetupCountsAndOffsets != null && ItemNameSetupCountsAndOffsets.Count > 0)
+            if (ItemNameSetupCountsAndOffsets != null && ItemNameSetupCountsAndOffsets.Count > 0)
             {
                 sb.AppendLine($"  Additional Item names to variation mapping for {ItemNameSetupCountsAndOffsets.Count} entries starts at {ItemNameSetupCountsAndOffsets.Offset}");
             }
@@ -163,7 +163,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     break;
             }
 
-            return string.Format("[Value = <{0} | 0x{1}> | LetterValue = <0x{2}> Letter = <{3}>]", Value.ToString(), Value.ToString("X"), ((uint) Letter).ToString("X"), printLetter);
+            return string.Format("[Value = <{0} | 0x{1}> | LetterValue = <0x{2}> Letter = <{3}>]", Value.ToString(), Value.ToString("X"), ((uint)Letter).ToString("X"), printLetter);
         }
 
         /// <summary>
@@ -441,7 +441,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <summary>
         /// The ids and encoded texts with positions of all the primarily used texts.
         /// </summary>
-        public SortedDictionary<uint, EncodedTextPosition> PrimaryTextIdsAndPositions { get; private set; }
+        public SortedDictionary<TextID, EncodedTextPosition> PrimaryTextIdsAndPositions { get; private set; }
 
         /// <summary>
         /// The ids and encoded texts with positions of all the declinated adjectives used in DAI crafting
@@ -454,13 +454,62 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         public byte[] TextBytes { get; private set; }
 
         public EncodedTextPositionGrouping(
-            SortedDictionary<uint, EncodedTextPosition> inPrimaryTextIdsAndPositions,
+            SortedDictionary<TextID, EncodedTextPosition> inPrimaryTextIdsAndPositions,
             List<SortedDictionary<uint, EncodedTextPosition>> inDeclinatedAdjectiveIdsAndPositions,
             byte[] InTextBytes)
         {
             this.PrimaryTextIdsAndPositions = inPrimaryTextIdsAndPositions;
             this.DeclinatedAdjectivesIdsAndPositions = inDeclinatedAdjectiveIdsAndPositions;
             this.TextBytes = InTextBytes;
+        }
+    }
+
+    /// <summary>
+    /// Text id used for sorting when writing the texts.
+    /// </summary>
+    public class TextID : IComparable<TextID>
+    {
+        /// <summary>
+        /// The value added to the original text id to form the id for the variant texts.
+        /// Note that the crafting item adjectives and parts might have ids way beyond this without beeing variants.
+        /// </summary>
+        public static readonly uint variantAddition = 0x80000000;
+
+        /// <summary>
+        /// The actual id value.
+        /// </summary>
+        public uint Id { get; private set; }
+
+        /// <summary>
+        /// Indicates that the text this id belongs to is a ( female player character ) variant of another text.
+        /// This id is the same as the id of the ( male character ) original text with added 0x80000000.
+        /// In the resources, these are ordered immediately after their non variant texts in the text position list.
+        /// </summary>
+        public bool IsVariant { get; private set; }
+
+        public TextID(uint id)
+        {
+            Id = id;
+            IsVariant = id > variantAddition;
+        }
+
+        public int CompareTo(TextID other)
+        {
+            if ((!IsVariant && !other.IsVariant)
+                || (IsVariant && other.IsVariant))
+            {
+                return Id.CompareTo(other.Id);
+            }
+
+            uint nonVariant = IsVariant ? Id - variantAddition : Id;
+            uint otherNonVariant = other.IsVariant ? other.Id - variantAddition : other.Id;
+
+            int nonVariantCompare = nonVariant.CompareTo(otherNonVariant);
+            if (nonVariantCompare != 0)
+            {
+                return nonVariantCompare;
+            }
+            return IsVariant.CompareTo(other.IsVariant);
         }
     }
 

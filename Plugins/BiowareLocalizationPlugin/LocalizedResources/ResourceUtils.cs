@@ -723,12 +723,12 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             ///* enable this for testing and debugging */
             //ResourceTestUtils.VerifyTextPositions(uniqueTextPositions.Values);
 
-            SortedDictionary<uint, EncodedTextPosition> primaryTextsSortedById = MapEncodedTextPositionById(encodedPrimaryTexts, uniqueTextPositions);
+            SortedDictionary<TextID, EncodedTextPosition> primaryTextsSortedById = MapEncodedTextPositionById(x => new TextID(x), encodedPrimaryTexts, uniqueTextPositions);
 
             List<SortedDictionary<uint, EncodedTextPosition>> encodedDeclinatedArticleTextsById = new List<SortedDictionary<uint, EncodedTextPosition>>();
             foreach (var idMappedText in encodedDeclinatedArticleTexts)
             {
-                SortedDictionary<uint, EncodedTextPosition> encodedTextsById = MapEncodedTextPositionById(idMappedText, uniqueTextPositions);
+                SortedDictionary<uint, EncodedTextPosition> encodedTextsById = MapEncodedTextPositionById(x => x, idMappedText, uniqueTextPositions);
                 encodedDeclinatedArticleTextsById.Add(encodedTextsById);
             }
 
@@ -748,10 +748,10 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             // first get the default entries
 
-            SortedDictionary<uint, EncodedTextPosition> primaryTextIdsAndPositions = new SortedDictionary<uint, EncodedTextPosition>();
+            SortedDictionary<TextID, EncodedTextPosition> primaryTextIdsAndPositions = new SortedDictionary<TextID, EncodedTextPosition>();
             foreach (var entry in primaryExistingTexts)
             {
-                primaryTextIdsAndPositions[entry.Id] = FromLocalizedTextPosition(entry, encoding);
+                primaryTextIdsAndPositions[new TextID(entry.Id)] = FromLocalizedTextPosition(entry, encoding);
             }
 
             List<SortedDictionary<uint, EncodedTextPosition>> declinatedAdjectivesIdsAndPositions = new List<SortedDictionary<uint, EncodedTextPosition>>();
@@ -798,7 +798,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             foreach (var entry in onlyEdits.PrimaryTextIdsAndPositions)
             {
-                uint id = entry.Key;
+                TextID id = entry.Key;
                 EncodedTextPosition textPosition = entry.Value;
                 textPosition.Position = textPosition.Position + offset;
 
@@ -976,17 +976,20 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <summary>
         /// Combines the two given dictionaries, returning a single mapping from text id to an encoded text with position.
         /// </summary>
+        /// <param name="idMapper"></param>
         /// <param name="encodedTexts"></param>
         /// <param name="uniqueTextPositions"></param>
         /// <returns></returns>
-        private static SortedDictionary<uint, EncodedTextPosition> MapEncodedTextPositionById(
+        private static SortedDictionary<T, EncodedTextPosition> MapEncodedTextPositionById<T>(
+            Func<uint, T> idMapper,
             IDictionary<uint, EncodedText> encodedTexts,
             IDictionary<EncodedText, EncodedTextPosition> uniqueTextPositions)
         {
-            SortedDictionary<uint, EncodedTextPosition> textsSortedById = new SortedDictionary<uint, EncodedTextPosition>();
+            SortedDictionary<T, EncodedTextPosition> textsSortedById = new SortedDictionary<T, EncodedTextPosition>();
             foreach (KeyValuePair<uint, EncodedText> entry in encodedTexts)
             {
-                textsSortedById.Add(entry.Key, uniqueTextPositions[entry.Value]);
+                T id = idMapper(entry.Key);
+                textsSortedById.Add(id, uniqueTextPositions[entry.Value]);
             }
 
             return textsSortedById;

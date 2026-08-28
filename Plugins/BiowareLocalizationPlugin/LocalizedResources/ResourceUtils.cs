@@ -723,12 +723,12 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             ///* enable this for testing and debugging */
             //ResourceTestUtils.VerifyTextPositions(uniqueTextPositions.Values);
 
-            SortedDictionary<TextID, EncodedTextPosition> primaryTextsSortedById = MapEncodedTextPositionById(x => new TextID(x), encodedPrimaryTexts, uniqueTextPositions);
+            SortedDictionary<TextID, EncodedTextPosition> primaryTextsSortedById = MapEncodedTextPositionById(encodedPrimaryTexts, uniqueTextPositions);
 
-            List<SortedDictionary<uint, EncodedTextPosition>> encodedDeclinatedArticleTextsById = new List<SortedDictionary<uint, EncodedTextPosition>>();
+            List<SortedDictionary<TextID, EncodedTextPosition>> encodedDeclinatedArticleTextsById = new List<SortedDictionary<TextID, EncodedTextPosition>>();
             foreach (var idMappedText in encodedDeclinatedArticleTexts)
             {
-                SortedDictionary<uint, EncodedTextPosition> encodedTextsById = MapEncodedTextPositionById(x => x, idMappedText, uniqueTextPositions);
+                SortedDictionary<TextID, EncodedTextPosition> encodedTextsById = MapEncodedTextPositionById(idMappedText, uniqueTextPositions);
                 encodedDeclinatedArticleTextsById.Add(encodedTextsById);
             }
 
@@ -754,14 +754,14 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 primaryTextIdsAndPositions[new TextID(entry.Id)] = FromLocalizedTextPosition(entry, encoding);
             }
 
-            List<SortedDictionary<uint, EncodedTextPosition>> declinatedAdjectivesIdsAndPositions = new List<SortedDictionary<uint, EncodedTextPosition>>();
+            List<SortedDictionary<TextID, EncodedTextPosition>> declinatedAdjectivesIdsAndPositions = new List<SortedDictionary<TextID, EncodedTextPosition>>();
             for (int i = 0; i < dragonAgeDeclinatedAdjectives.NumberOfDeclinations; i++)
             {
-                SortedDictionary<uint, EncodedTextPosition> adjectiveIdsAndPositionsOfDeclination = new SortedDictionary<uint, EncodedTextPosition>();
+                SortedDictionary<TextID, EncodedTextPosition> adjectiveIdsAndPositionsOfDeclination = new SortedDictionary<TextID, EncodedTextPosition>();
                 declinatedAdjectivesIdsAndPositions.Add(adjectiveIdsAndPositionsOfDeclination);
                 foreach (var entry in dragonAgeDeclinatedAdjectives.GetAdjectivesOfDeclination(i))
                 {
-                    adjectiveIdsAndPositionsOfDeclination[entry.Id] = FromLocalizedTextPosition(entry, encoding);
+                    adjectiveIdsAndPositionsOfDeclination[new TextID(entry.Id)] = FromLocalizedTextPosition(entry, encoding);
                 }
             }
 
@@ -976,19 +976,17 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <summary>
         /// Combines the two given dictionaries, returning a single mapping from text id to an encoded text with position.
         /// </summary>
-        /// <param name="idMapper"></param>
         /// <param name="encodedTexts"></param>
         /// <param name="uniqueTextPositions"></param>
         /// <returns></returns>
-        private static SortedDictionary<T, EncodedTextPosition> MapEncodedTextPositionById<T>(
-            Func<uint, T> idMapper,
+        private static SortedDictionary<TextID, EncodedTextPosition> MapEncodedTextPositionById(
             IDictionary<uint, EncodedText> encodedTexts,
             IDictionary<EncodedText, EncodedTextPosition> uniqueTextPositions)
         {
-            SortedDictionary<T, EncodedTextPosition> textsSortedById = new SortedDictionary<T, EncodedTextPosition>();
+            SortedDictionary<TextID, EncodedTextPosition> textsSortedById = new SortedDictionary<TextID, EncodedTextPosition>();
             foreach (KeyValuePair<uint, EncodedText> entry in encodedTexts)
             {
-                T id = idMapper(entry.Key);
+                TextID id = new TextID(entry.Key);
                 textsSortedById.Add(id, uniqueTextPositions[entry.Value]);
             }
 

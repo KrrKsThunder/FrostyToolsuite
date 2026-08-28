@@ -149,7 +149,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             originalResourceSizeInBytes = reader.Length;
             reader.Position = 0;
             m_originalData = reader.ReadToEnd();
-            zzz_fuckingstupidTextsNotBeingDisplayedHelperFunction();
+            //zzz_fuckingstupidTextsNotBeingDisplayedHelperFunction();
         }
 
         // TODO remove this!
@@ -201,7 +201,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     var previousId = m_localizedStrings[i - 1].Id;
                     var currentId = m_localizedStrings[i].Id;
 
-                    var previousNonShiftId = previousId < TextID.variantAddition ? previousId : previousId - TextID.variantAddition;
+                    var previousNonShiftId = previousId & TextID.NON_VARIANT_MASK;
 
                     if (currentId <= previousNonShiftId)
                     {
@@ -209,28 +209,57 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     }
                 }
 
-                //int checkStartPos = (int)m_headerData.AdjectiveDeclinationsCountsAndOffsets.Offset;
-                //int checkEndPos = (int)m_headerData.DataOffset;
-                //// additional changes before (int)m_headerData.DataOffset;
-
-                //if(m_headerData.MaxDeclinations > 1)
+                //// original list
+                //using (NativeReader reader = new NativeReader(new MemoryStream(m_originalData)))
                 //{
-                //    checkStartPos = (int)m_headerData.DragonAgeDeclinatedCraftingNamePartsCountAndOffset[0].Offset;
-                //    checkEndPos = (int)m_headerData.DragonAgeDeclinatedCraftingNamePartsCountAndOffset[1].Offset;
+                //    int declinationNumber = 1;
+                //    var dataToCheck = m_headerData.DragonAgeDeclinatedCraftingNamePartsCountAndOffset[declinationNumber];
+                //    reader.Position = dataToCheck.Offset;
+                //    var list = ReadDragonAgeDeclinatedItemNamePartIdsAndOffsets(reader, dataToCheck, declinationNumber);
+                //    foreach (LocalizedStringWithId entry in list)
+                //    {
+                //        App.Logger.Log("Adjective: <{0}> at position: <{1}>", entry.Id.ToString("X"), entry.DefaultPosition);
+                //    }
                 //}
 
-                //App.Logger.Log("Checking between bytes <{0}> and <{1}>", checkStartPos, checkEndPos);
-                //App.Logger.Log(m_headerData.ToString());
+                //App.Logger.Log("End origina, start reread");
 
-                //Parallel.For(checkStartPos, checkEndPos, (int i) =>
+                //// recreated list
+                //using (NativeReader reader = new NativeReader(new MemoryStream(altered)))
                 //{
-                //    if (m_originalData[i] != altered[i])
+                //    int declinationNumber = 1;
+                //    var dataToCheck = m_headerData.DragonAgeDeclinatedCraftingNamePartsCountAndOffset[declinationNumber];
+                //    reader.Position = dataToCheck.Offset;
+                //    var list = ReadDragonAgeDeclinatedItemNamePartIdsAndOffsets(reader, dataToCheck, declinationNumber);
+                //    foreach (LocalizedStringWithId entry in list)
                 //    {
-                //        App.Logger.Log("Difference at position <{0}>, original was <{1}>, rewrite was <{2}>", i, m_originalData[i].ToString("X"), altered[i].ToString("X"));
+                //        App.Logger.Log("Altered Adjective: <{0}> at position: <{1}>", entry.Id.ToString("X"), entry.DefaultPosition);
                 //    }
-                //});
+                //}
 
-                //App.Logger.Log("Finished Byte Array Comparison");
+                int checkStartPos = (int)m_headerData.AdjectiveDeclinationsCountsAndOffsets.Offset;
+                int checkEndPos = (int)m_headerData.DataOffset;
+                // additional changes before (int)m_headerData.DataOffset;
+
+                //int declinationNumber = 1;
+                //if (m_headerData.MaxDeclinations > declinationNumber)
+                //{
+                //    checkStartPos = (int)m_headerData.DragonAgeDeclinatedCraftingNamePartsCountAndOffset[declinationNumber - 1].Offset;
+                //    checkEndPos = (int)m_headerData.DragonAgeDeclinatedCraftingNamePartsCountAndOffset[declinationNumber].Offset;
+                //}
+
+                App.Logger.Log(m_headerData.ToString());
+                App.Logger.Log("Checking between bytes <{0}> and <{1}>", checkStartPos, checkEndPos);
+
+                Parallel.For(checkStartPos, checkEndPos, (int i) =>
+                {
+                    if (m_originalData[i] != altered[i])
+                    {
+                        App.Logger.Log("Difference at position <{0}>, original was <{1}>, rewrite was <{2}>", i, m_originalData[i].ToString("X"), altered[i].ToString("X"));
+                    }
+                });
+
+                App.Logger.Log("Finished Byte Array Comparison");
             }
         }
 
@@ -395,7 +424,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                         encodedTextsGrouping.PrimaryTextIdsAndPositions.Count, writer.Position, recalculatedAdditionalOffsets[0].Offset, writer.Position - actualStringsOffset);
                 }
 
-                foreach (var entry in ItemNamesToCraftingAdjectiveVariation)
+                foreach (KeyValuePair<uint, uint> entry in ItemNamesToCraftingAdjectiveVariation)
                 {
                     writer.Write(entry.Key);
                     writer.Write(entry.Value);
@@ -407,7 +436,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                         ItemNamesToCraftingAdjectiveVariation.Count, writer.Position, recalculatedAdditionalOffsets[1].Offset, writer.Position - recalculatedAdditionalOffsets[0].Offset);
                 }
 
-                foreach (var entry in AdjectiveVariationToDeclinationTuple)
+                foreach (KeyValuePair<uint, uint> entry in AdjectiveVariationToDeclinationTuple)
                 {
                     writer.Write(entry.Key);
                     writer.Write(entry.Value);
@@ -422,9 +451,9 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 // write the ids and positions of the declinated adjectives.
                 foreach (var declinationBlock in encodedTextsGrouping.DeclinatedAdjectivesIdsAndPositions)
                 {
-                    foreach (KeyValuePair<uint, EncodedTextPosition> entry in declinationBlock)
+                    foreach (KeyValuePair<TextID, EncodedTextPosition> entry in declinationBlock)
                     {
-                        writer.Write(entry.Key);
+                        writer.Write(entry.Key.Id);
                         writer.Write(entry.Value.Position);
                     }
                 }

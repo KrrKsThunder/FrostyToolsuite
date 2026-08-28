@@ -1,4 +1,5 @@
 ﻿using Frosty.Core;
+using Frosty.Core.Controls.Editors;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -446,7 +447,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         /// <summary>
         /// The ids and encoded texts with positions of all the declinated adjectives used in DAI crafting
         /// </summary>
-        public List<SortedDictionary<uint, EncodedTextPosition>> DeclinatedAdjectivesIdsAndPositions { get; private set; }
+        public List<SortedDictionary<TextID, EncodedTextPosition>> DeclinatedAdjectivesIdsAndPositions { get; private set; }
 
         /// <summary>
         /// The byte array of the encoded texts
@@ -455,7 +456,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
         public EncodedTextPositionGrouping(
             SortedDictionary<TextID, EncodedTextPosition> inPrimaryTextIdsAndPositions,
-            List<SortedDictionary<uint, EncodedTextPosition>> inDeclinatedAdjectiveIdsAndPositions,
+            List<SortedDictionary<TextID, EncodedTextPosition>> inDeclinatedAdjectiveIdsAndPositions,
             byte[] InTextBytes)
         {
             this.PrimaryTextIdsAndPositions = inPrimaryTextIdsAndPositions;
@@ -469,11 +470,16 @@ namespace BiowareLocalizationPlugin.LocalizedResources
     /// </summary>
     public class TextID : IComparable<TextID>
     {
+
         /// <summary>
-        /// The value added to the original text id to form the id for the variant texts.
-        /// Note that the crafting item adjectives and parts might have ids way beyond this without beeing variants.
+        /// Mask to get only the first byte of the ID, which carries some meta information.
+        /// For primary texts, an 8 at this position indicates that the text is a variation used with female protagonists.
+        /// For the crafting item names there are more variants. At least 2,4,C and E. I'm fairly certain that 2 and 4 come before the noun, while C and E after. This is
         /// </summary>
-        public static readonly uint variantAddition = 0x80000000;
+        public static readonly uint VARIANT_MASK = 0xF0000000;
+
+        // the inverse of the variant mask
+        public static readonly uint NON_VARIANT_MASK = 0x0FFFFFFF;
 
         /// <summary>
         /// The actual id value.
@@ -481,35 +487,51 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         public uint Id { get; private set; }
 
         /// <summary>
-        /// Indicates that the text this id belongs to is a ( female player character ) variant of another text.
-        /// This id is the same as the id of the ( male character ) original text with added 0x80000000.
-        /// In the resources, these are ordered immediately after their non variant texts in the text position list.
+        /// The id of the text without the highest 4 bit variant marker.
         /// </summary>
-        public bool IsVariant { get; private set; }
+        public readonly uint m_nonVariantId;
+
+        /// <summary>
+        /// The variant of this text id.
+        /// </summary>
+        public readonly uint m_variantValue;
 
         public TextID(uint id)
         {
             Id = id;
-            IsVariant = id > variantAddition;
+            m_nonVariantId = id & NON_VARIANT_MASK;
+            m_variantValue = id & VARIANT_MASK;
+        }
+
+        /// <summary>
+        /// Indicates that the text this id belongs to is a ( female player character ) variant of another text.
+        /// This id is the same as the id of the ( male character ) original text with added 0x80000000.
+        /// For crafting adjective the variant value might be 0x20000000, 0x40000000, 0xC0000000, or 0xE0000000. Probably indicating wether the adjective comes before or after the noun.
+        /// In the resources, these are ordered immediately after their non variant texts in the text position list.
+        /// </summary>
+        public bool IsVariant()
+        {
+            return m_variantValue > 0;
         }
 
         public int CompareTo(TextID other)
         {
-            if ((!IsVariant && !other.IsVariant)
-                || (IsVariant && other.IsVariant))
+            if (!IsVariant() && !other.IsVariant())
             {
                 return Id.CompareTo(other.Id);
             }
 
-            uint nonVariant = IsVariant ? Id - variantAddition : Id;
-            uint otherNonVariant = other.IsVariant ? other.Id - variantAddition : other.Id;
-
-            int nonVariantCompare = nonVariant.CompareTo(otherNonVariant);
+            int nonVariantCompare = m_nonVariantId.CompareTo(other.m_nonVariantId);
             if (nonVariantCompare != 0)
             {
                 return nonVariantCompare;
             }
-            return IsVariant.CompareTo(other.IsVariant);
+            return m_variantValue.CompareTo(other.m_variantValue);
+        }
+
+        public override string ToString()
+        {
+            return Id.ToString("X");
         }
     }
 

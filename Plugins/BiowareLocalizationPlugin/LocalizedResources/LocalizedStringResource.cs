@@ -5,11 +5,9 @@ using FrostySdk.Managers;
 using FrostySdk.Resources;
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace BiowareLocalizationPlugin.LocalizedResources
 {
@@ -144,123 +142,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             // keep informed about changes...
             entry.AssetModified += (s, e) => OnModified((ResAssetEntry)s);
-
-            // TODO remove this again!
-            originalResourceSizeInBytes = reader.Length;
-            reader.Position = 0;
-            m_originalData = reader.ReadToEnd();
-            //zzz_fuckingstupidTextsNotBeingDisplayedHelperFunction();
-        }
-
-        // TODO remove this!
-        private long originalResourceSizeInBytes = -1;
-        byte[] m_originalData;
-        private void zzz_fuckingstupidTextsNotBeingDisplayedHelperFunction()
-        {
-            if (m_modifiedResource != null || Name.Contains("dummy"))
-            {
-                if (originalResourceSizeInBytes < 0)
-                {
-                    App.Logger.LogWarning("Resource <{0}> original size was not specified!", Name);
-                }
-                App.Logger.Log("Resource <{0}> size in bytes: <{1}>", Name, originalResourceSizeInBytes.ToString("N0"));
-                long bitlength = (originalResourceSizeInBytes - m_headerData.DataOffset) * 8;
-                App.Logger.Log("Encoded text bit lengths of resource <{0}> is <{1}>", Name, bitlength.ToString("N0"));
-
-
-                List<HuffmanNode> nodeList = ResourceUtils.GetNodeListToWrite(m_encodingRootNode);
-                Dictionary<char, List<bool>> encoding = ResourceUtils.GetCharEncoding(nodeList);
-
-
-                foreach (string sid in new string[] { "00044EB0", "00044EBE", "00044EBF", "00044EE1" })
-                {
-                    LocalizedString lstring = m_localizedStrings.Where(e => e.Id.Equals(uint.Parse(sid, NumberStyles.HexNumber))).FirstOrDefault();
-                    if (lstring != null)
-                    {
-                        string stringPos = lstring.DefaultPosition.ToString("N0");
-                        App.Logger.Log("Rus text with issue <{0}> at bit offset: <{1}>", sid, stringPos);
-
-                        //List<bool> encodedText = ResourceUtils.GetEncodedText(lstring.Value, encoding);
-                        //String bitSequence = string.Join(", ", encodedText.Select(b => b ? 1 : 0).ToArray());
-                        //App.Logger.Log( "Text <{0}> yields bitsequence [{1}]", sid, bitSequence );
-                    }
-                }
-            }
-            if (m_modifiedResource != null)
-            {
-                var reReadResource = ResourceTestUtils.ReadWriteTest(this);
-
-                // TODO figure out a way to compare byte arrays wihout having the expected differences in text offset marked...
-
-                // save again...
-                byte[] altered = SaveBytes();
-
-                // string data is not in same position?
-                for (int i = 1; i < m_localizedStrings.Count; i++)
-                {
-                    var previousId = m_localizedStrings[i - 1].Id;
-                    var currentId = m_localizedStrings[i].Id;
-
-                    var previousNonShiftId = previousId & TextID.NON_VARIANT_MASK;
-
-                    if (currentId <= previousNonShiftId)
-                    {
-                        App.Logger.Log("Current id <{0}> is after ID <{1}> in string list!", currentId.ToString("X"), previousId.ToString("X"));
-                    }
-                }
-
-                //// original list
-                //using (NativeReader reader = new NativeReader(new MemoryStream(m_originalData)))
-                //{
-                //    int declinationNumber = 1;
-                //    var dataToCheck = m_headerData.DragonAgeDeclinatedCraftingNamePartsCountAndOffset[declinationNumber];
-                //    reader.Position = dataToCheck.Offset;
-                //    var list = ReadDragonAgeDeclinatedItemNamePartIdsAndOffsets(reader, dataToCheck, declinationNumber);
-                //    foreach (LocalizedStringWithId entry in list)
-                //    {
-                //        App.Logger.Log("Adjective: <{0}> at position: <{1}>", entry.Id.ToString("X"), entry.DefaultPosition);
-                //    }
-                //}
-
-                //App.Logger.Log("End origina, start reread");
-
-                //// recreated list
-                //using (NativeReader reader = new NativeReader(new MemoryStream(altered)))
-                //{
-                //    int declinationNumber = 1;
-                //    var dataToCheck = m_headerData.DragonAgeDeclinatedCraftingNamePartsCountAndOffset[declinationNumber];
-                //    reader.Position = dataToCheck.Offset;
-                //    var list = ReadDragonAgeDeclinatedItemNamePartIdsAndOffsets(reader, dataToCheck, declinationNumber);
-                //    foreach (LocalizedStringWithId entry in list)
-                //    {
-                //        App.Logger.Log("Altered Adjective: <{0}> at position: <{1}>", entry.Id.ToString("X"), entry.DefaultPosition);
-                //    }
-                //}
-
-                int checkStartPos = (int)m_headerData.AdjectiveDeclinationsCountsAndOffsets.Offset;
-                int checkEndPos = (int)m_headerData.DataOffset;
-                // additional changes before (int)m_headerData.DataOffset;
-
-                //int declinationNumber = 1;
-                //if (m_headerData.MaxDeclinations > declinationNumber)
-                //{
-                //    checkStartPos = (int)m_headerData.DragonAgeDeclinatedCraftingNamePartsCountAndOffset[declinationNumber - 1].Offset;
-                //    checkEndPos = (int)m_headerData.DragonAgeDeclinatedCraftingNamePartsCountAndOffset[declinationNumber].Offset;
-                //}
-
-                App.Logger.Log(m_headerData.ToString());
-                App.Logger.Log("Checking between bytes <{0}> and <{1}>", checkStartPos, checkEndPos);
-
-                Parallel.For(checkStartPos, checkEndPos, (int i) =>
-                {
-                    if (m_originalData[i] != altered[i])
-                    {
-                        App.Logger.Log("Difference at position <{0}>, original was <{1}>, rewrite was <{2}>", i, m_originalData[i].ToString("X"), altered[i].ToString("X"));
-                    }
-                });
-
-                App.Logger.Log("Finished Byte Array Comparison");
-            }
         }
 
         public override byte[] SaveBytes()
@@ -286,11 +167,10 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             List<HuffmanNode> nodeList;
             EncodedTextPositionGrouping encodedTextsGrouping;
 
-            bool z_reuseOriginalData = false && IsReusingStringDataPossible();
-
-            if (z_reuseOriginalData)
+            bool reuseOriginalStringData = Config.Get(BiowareLocalizationPluginOptions.REUSE_ORIGINAL_RESOURCE_TEXTBITS, false, ConfigScope.Game); ;
+            if (reuseOriginalStringData && IsReusingStringDataPossible())
             {
-                App.Logger.LogWarning("Try reusing original data for resource <{0}>", Name);
+                App.Logger.Log("Try reusing original data for text resource <{0}>", Name);
                 rootNodeToUse = m_encodingRootNode;
 
                 // flatten the tree, we need to list representation again...
@@ -862,9 +742,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
             // revert the metadata just in case
             ReplaceMetaData(m_headerData.DataOffset);
-
-            // remove this again!
-            zzz_fuckingstupidTextsNotBeingDisplayedHelperFunction();
         }
 
         /// <summary>
@@ -1290,7 +1167,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
         {
 
             bool isPrintVerificationTexts = IsPrintVerificationTexts();
-            bool keepOriginalEncodingIfPossible = Config.Get(BiowareLocalizationPluginOptions.KEEP_ORIGINAL_ENCODING_IF_POSSIBLE, false, ConfigScope.Game); ;
+            bool keepOriginalEncodingIfPossible = false;
 
             if (keepOriginalEncodingIfPossible)
             {

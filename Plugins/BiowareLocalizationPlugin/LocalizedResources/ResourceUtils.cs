@@ -805,8 +805,6 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                 primaryTextIdsAndPositions[id] = textPosition;
             }
 
-            // TODO same with adjective declinations!
-
             byte[] stringBytesToWrite = new byte[originalData.Length + onlyEdits.TextBytes.Length];
 
             Array.Copy(originalData, 0, stringBytesToWrite, 0, originalData.Length);
@@ -842,7 +840,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
             DEFAULT,
 
             /// <summary>
-            /// Try to find the bit overlap by checking each bit. Extremely slow, very taxing on hardware, but smallest created resource size.
+            /// Try to find the bit overlap by checking each bit. _Extremely_ slow, very taxing on hardware, but smallest created resource size.
             /// </summary>
             BIT_OVERLAP,
 
@@ -880,7 +878,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     break;
 
                 case WriteVariant.BIT_OVERLAP:
-                    App.Logger.LogWarning("Using experimantal extremely slow bitwise method for writing byte array!");
+                    App.Logger.LogWarning("Using experimantal extremely slow bitwise overlap comparison method for writing byte array!");
 
                     List<EncodedTextPosition> textsSortedByEncodedLength = uniqueTextPositions.Values.ToList();
 
@@ -900,7 +898,7 @@ namespace BiowareLocalizationPlugin.LocalizedResources
                     break;
 
                 case WriteVariant.STRING_OVERLAP:
-                    App.Logger.LogWarning("Using experimantal very slow method for String comparison overerlapping byte array!");
+                    App.Logger.LogWarning("Using experimantal very slow method for String comparison overerlaping byte array!");
                     textBytes = getTextSizedOrderedByteArrayWithOverlap(dictionaryOfEncodedTexts, uniqueTextPositions);
                     break;
 

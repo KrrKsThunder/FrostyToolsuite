@@ -531,7 +531,18 @@ namespace BiowareLocalizationPlugin.LocalizedResources
 
         public override string ToString()
         {
-            return Id.ToString("X");
+            return Id.ToString("X8");
+        }
+
+        public override int GetHashCode()
+        {
+            return Id.GetHashCode();
+        }
+
+        public override bool Equals(object obj)
+        {
+            var other = obj as TextID;
+            return Id.Equals(other?.Id);
         }
     }
 
